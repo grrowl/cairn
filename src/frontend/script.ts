@@ -114,9 +114,36 @@ export const SCRIPT = `
       <div style="text-align:center;padding:4rem 0">
         <h2 style="margin-bottom:1rem;font-size:2rem;font-weight:700">Welcome to cairn</h2>
         <p style="color:var(--fg-dim);margin-bottom:2.5rem;font-size:1.1rem">Obsidian-like memory vault for your AI assistants</p>
-        <button class="btn" onclick="window.__startLogin()" style="padding:0.75rem 2.5rem;font-size:1.1rem">
+        <button class="btn" onclick="window.__startLogin()" style="padding:0.75rem 2.5rem;font-size:1.1rem;margin-bottom:4rem">
           Sign in with Google
         </button>
+        
+        <div style="text-align:left; max-width: 600px; margin: 0 auto; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem;">
+          <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">How it works</h3>
+          <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <div>
+              <h4 style="color: var(--accent); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                <span style="background: rgba(59, 130, 246, 0.2); color: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold;">1</span>
+                Create a Vault
+              </h4>
+              <p style="color: var(--fg-mutated); font-size: 0.95rem;">Sign in and create a shared workspace for your AI assistants. You'll get a unique MCP endpoint URL.</p>
+            </div>
+            <div>
+              <h4 style="color: var(--accent); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                <span style="background: rgba(59, 130, 246, 0.2); color: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold;">2</span>
+                Connect your AI
+              </h4>
+              <p style="color: var(--fg-mutated); font-size: 0.95rem;">Add the endpoint to Claude Code, Desktop, Cursor, or any MCP-compatible client. Your agents can now read and write to your shared vault.</p>
+            </div>
+            <div>
+              <h4 style="color: var(--accent); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                <span style="background: rgba(59, 130, 246, 0.2); color: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold;">3</span>
+                Share Memory
+              </h4>
+              <p style="color: var(--fg-mutated); font-size: 0.95rem;">All notes are saved as structured Markdown files. Your agents can cross-reference, backlink, and build shared knowledge seamlessly.</p>
+            </div>
+          </div>
+        </div>
       </div>
     \`;
   }
@@ -320,7 +347,10 @@ export const SCRIPT = `
             <div style="font-size: 2rem; margin-bottom: 1rem">🗂️</div>
             <h3 style="color: var(--fg); margin-bottom: 0.5rem">No notes yet</h3>
             <p style="margin-bottom: 1rem">Connect an MCP client to your endpoint to get started.</p>
-            <code class="copyable" onclick="window.__copy(this)" title="Click to copy" style="display:inline-block; padding: 0.5rem 1rem; font-size: 0.95rem">\${mcpEndpoint}</code>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem; text-align: left; max-width: 500px; margin: 0 auto; margin-top: 1rem;">
+              <code class="copyable" onclick="window.__copy(this)" title="Click to copy" style="display:block; padding: 0.75rem 1rem; font-size: 0.85rem">claude mcp add --scope project --transport http cairn \${mcpEndpoint}</code>
+              <code class="copyable" onclick="window.__copy(this)" title="Click to copy" style="display:block; padding: 0.75rem 1rem; font-size: 0.85rem">npx @cursor/mcp add --http cairn \${mcpEndpoint}</code>
+            </div>
           </div>\`;
         container.classList.remove('loading');
         return;

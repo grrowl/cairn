@@ -141,6 +141,23 @@ header h1 a { color: var(--fg); }
 header h1 a:hover { color: var(--accent); }
 header .user-info { font-size: 0.875rem; color: var(--fg-mutated); margin-right: 1rem; }
 
+/* Responsive Media Queries */
+@media (max-width: 600px) {
+  .form-row {
+    flex-wrap: wrap;
+  }
+  .form-row > * {
+    flex: 1 1 100%;
+  }
+  .form-row > button {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+  .form-row > select, .form-row > input {
+    width: 100% !important;
+  }
+}
+
 /* Surface Cards */
 .card {
   background: var(--bg-glass);
