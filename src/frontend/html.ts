@@ -107,11 +107,27 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); margin-right: 0.75rem;
   function escHtml(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
   function escAttr(s) { return (s || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
-  function router() {
+  async function router() {
     var route = getRoute();
     var t = getToken();
 
     var params = new URLSearchParams(window.location.search);
+    if (params.has('code')) {
+      var code = params.get('code');
+      var clientId = localStorage.getItem('cairn_client_id');
+      if (clientId) {
+        try {
+          var res = await fetch('/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ grant_type: 'authorization_code', code: code, client_id: clientId, redirect_uri: window.location.origin + '/' }),
+          });
+          if (res.ok) { var data = await res.json(); setToken(data.access_token); }
+        } catch (e) { console.error('Token exchange failed:', e); }
+      }
+      window.history.replaceState({}, '', window.location.pathname + '#/workspaces');
+      return router();
+    }
     if (params.has('access_token')) {
       setToken(params.get('access_token'));
       window.history.replaceState({}, '', window.location.pathname + '#/workspaces');

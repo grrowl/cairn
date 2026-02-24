@@ -117,8 +117,34 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
     const route = getRoute();
     const t = getToken();
 
-    // Check for OAuth callback token in URL params
+    // Check for OAuth callback
     const params = new URLSearchParams(window.location.search);
+    if (params.has('code')) {
+      const code = params.get('code');
+      const clientId = localStorage.getItem('cairn_client_id');
+      if (clientId) {
+        try {
+          const res = await fetch('/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'authorization_code',
+              code,
+              client_id: clientId,
+              redirect_uri: window.location.origin + '/',
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setToken(data.access_token);
+          }
+        } catch (e) {
+          console.error('Token exchange failed:', e);
+        }
+      }
+      window.history.replaceState({}, '', window.location.pathname + '#/workspaces');
+      return router();
+    }
     if (params.has('access_token')) {
       setToken(params.get('access_token'));
       window.history.replaceState({}, '', window.location.pathname + '#/workspaces');
