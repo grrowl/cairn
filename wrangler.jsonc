@@ -35,8 +35,11 @@
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "<Add-KV-ID>"
+      "id": "7efcd6f56046496aba3473dc60210adb"
     }
+  ],
+  "routes": [
+    { "pattern": "cairn.place", "custom_domain": true }
   ],
   "observability": {
     "enabled": true
