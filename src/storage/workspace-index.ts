@@ -1,4 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
+import { parseFrontmatter } from "./frontmatter";
+import { extractLinks } from "./wikilinks";
 
 export interface NoteMetadata {
 	title: string;
@@ -386,9 +388,62 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		return rows.length > 0 ? rows[0].canonical_path : null;
 	}
 
-	async rebuildIndex(): Promise<{ notes_indexed: number }> {
-		// Stub — fully implemented in Phase 5
-		return { notes_indexed: 0 };
+	async rebuildIndex(workspaceId?: string): Promise<{ notes_indexed: number }> {
+		// Clear all existing data
+		this.sql.exec("DELETE FROM notes");
+		this.sql.exec("DELETE FROM links");
+		this.sql.exec("DELETE FROM aliases");
+		this.sql.exec("DELETE FROM search_terms");
+
+		if (!workspaceId) {
+			return { notes_indexed: 0 };
+		}
+
+		const bucket = this.env.BUCKET;
+		let notesIndexed = 0;
+		let cursor: string | undefined;
+
+		do {
+			const listed = await bucket.list({
+				prefix: `${workspaceId}/notes/`,
+				cursor,
+			});
+
+			for (const obj of listed.objects) {
+				try {
+					const r2obj = await bucket.get(obj.key);
+					if (!r2obj) continue;
+
+					const raw = await r2obj.text();
+					const parsed = parseFrontmatter(raw);
+					const links = extractLinks(parsed.body);
+
+					// Derive path from R2 key: remove "{workspaceId}/notes/" prefix and ".md" suffix
+					const path = obj.key
+						.replace(`${workspaceId}/notes/`, "")
+						.replace(/\.md$/, "");
+
+					const metadata: NoteMetadata = {
+						title: parsed.frontmatter.title || path,
+						type: parsed.frontmatter.type || "",
+						tags: parsed.frontmatter.tags || [],
+						aliases: parsed.frontmatter.aliases || [],
+						links: links.map((l) => ({ target: l.target, context: l.context })),
+						created: parsed.frontmatter.created || "",
+						modified: parsed.frontmatter.modified || "",
+					};
+
+					await this.noteUpdated(path, metadata);
+					notesIndexed++;
+				} catch (err) {
+					console.error(`rebuildIndex: failed to index ${obj.key}:`, err);
+				}
+			}
+
+			cursor = listed.truncated ? listed.cursor : undefined;
+		} while (cursor);
+
+		return { notes_indexed: notesIndexed };
 	}
 }
 

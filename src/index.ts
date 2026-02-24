@@ -11,6 +11,8 @@ import { registerPatchTool } from "./mcp/tools/patch";
 import { registerDeleteTool } from "./mcp/tools/delete";
 import { registerSearchTool } from "./mcp/tools/search";
 import { registerLinksTool } from "./mcp/tools/links";
+import { workspaceRoutes } from "./workspaces/routes";
+import { getWorkspaceMetadata, checkMembership } from "./workspaces/membership";
 
 export { WorkspaceIndex } from "./storage/workspace-index";
 
@@ -30,9 +32,24 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		const getBucket = () => this.env.BUCKET;
 		const getWorkspaceId = () => this.props?.workspaceId || "default";
 		const getIndex = () => this.getWorkspaceIndex();
-		const getTimezone = () => "Australia/Melbourne"; // Default; will use workspace settings in Phase 5
+		// Timezone cached per workspace (loaded lazily from R2 workspace metadata)
+		let cachedTimezone: string | null = null;
+		const getTimezone = () => {
+			if (cachedTimezone) return cachedTimezone;
+			// Default until workspace metadata is loaded
+			return "Australia/Melbourne";
+		};
+		// Load timezone from workspace metadata asynchronously
+		const workspaceId = getWorkspaceId();
+		if (workspaceId !== "default") {
+			getWorkspaceMetadata(this.env.BUCKET, workspaceId).then((ws) => {
+				if (ws?.settings?.timezone) {
+					cachedTimezone = ws.settings.timezone;
+				}
+			}).catch(() => {});
+		}
 
-		// Register MCP tools
+		// Register all 8 MCP tools + ping
 		registerReadTool(this.server, getBucket, getWorkspaceId, getIndex);
 		registerWriteTool(this.server, getBucket, getWorkspaceId, getIndex);
 		registerListTool(this.server, getIndex);
@@ -42,7 +59,6 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		registerSearchTool(this.server, getIndex);
 		registerLinksTool(this.server, getIndex);
 
-		// Ping tool for basic health checks
 		this.server.tool("cairn_ping", "Check that the Cairn MCP server is running", {}, async () => ({
 			content: [
 				{
@@ -59,22 +75,71 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 	}
 }
 
-// Wrap CairnMCP.serve() to inject workspaceId from X-Workspace-Id header into props
+// CairnMCP serve handler for MCP requests
 const mcpServe = CairnMCP.serve("/mcp");
 
-const wrappedMcpHandler = {
+// Combined API handler: routes both MCP and REST API requests.
+// Both go through OAuthProvider token validation.
+const apiHandler = {
 	async fetch(request: Request, env: Env, ctx: any) {
-		const workspaceId = request.headers.get("X-Workspace-Id") || "default";
-		if (ctx.props) {
-			ctx.props.workspaceId = workspaceId;
+		const url = new URL(request.url);
+		const props = ctx.props as Props | undefined;
+
+		if (url.pathname.startsWith("/mcp")) {
+			// MCP request — inject workspaceId from header
+			const workspaceId = request.headers.get("X-Workspace-Id") || "default";
+			if (props) {
+				props.workspaceId = workspaceId;
+			}
+
+			// Membership check for MCP requests
+			if (workspaceId !== "default") {
+				const workspace = await getWorkspaceMetadata(env.BUCKET, workspaceId);
+				if (!workspace) {
+					return new Response(JSON.stringify({ error: "Workspace not found" }), {
+						status: 404,
+						headers: { "Content-Type": "application/json" },
+					});
+				}
+				const email = props?.email || "";
+				const { authorized } = checkMembership(workspace, email, env.ADMIN_EMAIL);
+				if (!authorized) {
+					return new Response(JSON.stringify({ error: "Not a member of this workspace" }), {
+						status: 403,
+						headers: { "Content-Type": "application/json" },
+					});
+				}
+			}
+
+			return mcpServe.fetch(request, env, ctx);
 		}
-		return mcpServe.fetch(request, env, ctx);
+
+		if (url.pathname.startsWith("/api/")) {
+			// REST API request — inject auth context into Hono middleware
+			const email = props?.email || "";
+			const name = props?.name || "";
+
+			// Clone request and add auth context via headers for Hono middleware
+			const apiRequest = new Request(request.url, request);
+
+			// Use Hono's middleware to inject auth context
+			const honoApp = workspaceRoutes;
+			// Set auth context via a custom mechanism
+			const response = await honoApp.fetch(
+				apiRequest,
+				{ ...env, __auth: { email, name } } as any,
+				ctx,
+			);
+			return response;
+		}
+
+		return new Response("Not found", { status: 404 });
 	},
 };
 
 const provider = new OAuthProvider({
-	apiHandler: wrappedMcpHandler as any,
-	apiRoute: "/mcp",
+	apiHandler: apiHandler as any,
+	apiRoute: ["/mcp", "/api/"],
 	authorizeEndpoint: "/authorize",
 	clientRegistrationEndpoint: "/register",
 	defaultHandler: GoogleHandler as any,
@@ -91,13 +156,11 @@ const RESERVED_PATHS = new Set([
 	".well-known",
 ]);
 
-// Custom fetch handler: rewrite /{workspaceId}/mcp to /mcp + X-Workspace-Id header
-// so OAuthProvider's prefix-based apiRoute matching works.
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
 		const url = new URL(request.url);
 
-		// Match /{workspaceId}/mcp paths
+		// Match /{workspaceId}/mcp paths and rewrite to /mcp + header
 		const mcpMatch = url.pathname.match(/^\/([a-z0-9][a-z0-9_-]*)\/mcp(\/.*)?$/);
 		if (mcpMatch && !RESERVED_PATHS.has(mcpMatch[1])) {
 			const workspaceId = mcpMatch[1];
