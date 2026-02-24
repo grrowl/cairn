@@ -2,7 +2,9 @@
 
 All tools are prefixed `cairn_` to namespace within an LLM's tool registry.
 
-Paths never include `.md` extension. The server appends it for R2 storage.
+Paths never include the `.md` extension. The server appends it for R2 storage.
+
+All errors use MCP's native error mechanism: `{ content: [{ type: "text", text: "error_type: message" }], isError: true }`.
 
 ## cairn_read
 
@@ -22,7 +24,7 @@ Read a note's content.
       },
       "section": {
         "type": "string",
-        "description": "Heading text to extract just that section and its children"
+        "description": "Heading text (without # prefix) to extract just that section e.g. 'Meetings'. Matches the first heading with this text regardless of level."
       },
       "metadata_only": {
         "type": "boolean",
@@ -54,12 +56,12 @@ When `metadata_only: true`, body is omitted and backlinks include context snippe
 
 ## cairn_write
 
-Create or overwrite a note. Upsert — creates parent "folders" implicitly.
+Create or overwrite a note. Upsert semantics — the path can contain slashes for logical grouping (R2 is flat key-value storage, not a filesystem).
 
 ```json
 {
   "name": "cairn_write",
-  "description": "Create or overwrite a note. Frontmatter in content is parsed and merged with explicit params. Backlinks in content are automatically indexed. Aliases allow this note to be found when other notes link using those names.",
+  "description": "Create or overwrite a note. Frontmatter in content is parsed and merged with explicit params. WikiLinks in content are automatically indexed. Aliases allow this note to be found when other notes link using those names.",
   "inputSchema": {
     "type": "object",
     "required": ["path", "content"],
@@ -87,7 +89,12 @@ Create or overwrite a note. Upsert — creates parent "folders" implicitly.
 }
 ```
 
-**Response:** `{ "path": "entities/person/jamie", "created": false, "backlinks_updated": 3 }`
+**Response:** `{ "path": "entities/person/jamie", "created": false, "links_found": 3 }`
+
+**Side effects:**
+- Writes note to R2
+- Updates R2 custom metadata (title, type, tags, modified)
+- Calls `WorkspaceIndex.noteUpdated()` with extracted metadata and wikilinks
 
 ---
 
@@ -98,7 +105,7 @@ Surgical edit without rewriting entire notes. The primary tool for incremental k
 ```json
 {
   "name": "cairn_patch",
-  "description": "Edit a note without rewriting it. Supports append/prepend to the whole note or a specific section, and find-replace. The note must already exist.",
+  "description": "Edit a note without rewriting it. Supports append/prepend to the whole note or a specific section, and find-replace. The note must already exist. WikiLinks in new content are automatically indexed.",
   "inputSchema": {
     "type": "object",
     "required": ["path", "op", "content"],
@@ -118,7 +125,7 @@ Surgical edit without rewriting entire notes. The primary tool for incremental k
       },
       "section": {
         "type": "string",
-        "description": "Target heading for section ops e.g. '## Meetings'"
+        "description": "Heading text (without # prefix) for section ops e.g. 'Meetings'"
       },
       "find": {
         "type": "string",
@@ -135,11 +142,23 @@ Surgical edit without rewriting entire notes. The primary tool for incremental k
 |----|-----------|
 | `append` | Add content to end of note body |
 | `prepend` | Add content after frontmatter, before existing body |
-| `replace` | Find `find` substring and replace with `content`. Fails if not found or ambiguous. |
-| `append_section` | Add content to end of named `section` (before next heading of same or higher level) |
-| `prepend_section` | Add content at start of named `section` (after the heading line) |
+| `replace` | Find `find` substring and replace with `content`. Fails if not found or ambiguous (appears more than once). |
+| `append_section` | Add content to end of named `section` (before next heading of same or higher level). Requires `section`. |
+| `prepend_section` | Add content at start of named `section` (after the heading line). Requires `section`. |
+
+**Validation errors:**
+- `replace` without `find` → error
+- `append_section` or `prepend_section` without `section` → error
+- `find` text not found → error
+- `find` text appears more than once → error (ambiguous)
+- `section` heading not found → error
 
 **Response:** `{ "path": "daily/2026-02-24", "op": "append_section", "bytes_added": 342 }`
+
+**Side effects:**
+- Reads note from R2, applies patch, writes back to R2
+- Updates R2 custom metadata (title, type, tags, modified)
+- Calls `WorkspaceIndex.noteUpdated()` with re-extracted metadata and wikilinks
 
 ---
 
@@ -150,7 +169,7 @@ Delete a note and optionally clean up references.
 ```json
 {
   "name": "cairn_delete",
-  "description": "Delete a note. By default, also removes backlink references to this note from other notes.",
+  "description": "Delete a note. By default, also removes this note from the backlink index. Does not modify the content of other notes that reference this one.",
   "inputSchema": {
     "type": "object",
     "required": ["path"],
@@ -158,17 +177,19 @@ Delete a note and optionally clean up references.
       "path": {
         "type": "string",
         "description": "Note path to delete"
-      },
-      "remove_backlinks": {
-        "type": "boolean",
-        "description": "Clean up [[references]] to this note in other notes. Default true."
       }
     }
   }
 }
 ```
 
-**Response:** `{ "deleted": "entities/person/old-contact", "backlinks_cleaned": 2 }`
+**Response:** `{ "deleted": "entities/person/old-contact" }`
+
+**Side effects:**
+- Deletes note from R2
+- Calls `WorkspaceIndex.noteDeleted()` which removes all index entries for this path (metadata, outgoing links, search terms, aliases)
+
+Note: incoming backlink references from other notes remain in the index (as dangling links) unless those notes are themselves updated. This is intentional — the content of referencing notes is not modified.
 
 ---
 
@@ -176,10 +197,12 @@ Delete a note and optionally clean up references.
 
 Full-text and metadata search. Returns snippets, not full documents.
 
+**At least one parameter must be provided.** Calling with no params returns a validation error.
+
 ```json
 {
   "name": "cairn_search",
-  "description": "Search notes by content, tags, or backlinks. Returns matching note paths with context snippets. Use backlinks_to to find all notes referencing a given note.",
+  "description": "Search notes by content, tags, or backlinks. Returns matching note paths with context snippets. At least one search parameter is required.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -194,7 +217,7 @@ Full-text and metadata search. Returns snippets, not full documents.
       },
       "path_prefix": {
         "type": "string",
-        "description": "Scope search to a folder e.g. 'entities/person'"
+        "description": "Scope search to a path prefix e.g. 'entities/person'"
       },
       "backlinks_to": {
         "type": "string",
@@ -206,7 +229,11 @@ Full-text and metadata search. Returns snippets, not full documents.
       },
       "limit": {
         "type": "integer",
-        "description": "Max results. Default 10."
+        "description": "Max results per page. Default 20."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Pagination cursor from previous response"
       }
     }
   }
@@ -221,14 +248,18 @@ Full-text and metadata search. Returns snippets, not full documents.
       "path": "daily/2026-02-24",
       "title": "2026-02-24",
       "snippet": "...discussed V2.1 launch with [[Jamie]]...",
-      "tags": ["meeting"],
-      "modified": "2026-02-24T14:00:00Z",
-      "score": 0.92
+      "tags": ["daily"],
+      "modified": "2026-02-24T14:00:00Z"
     }
   ],
-  "total": 3
+  "total": 3,
+  "cursor": "eyJvZmZzZXQiOjIwfQ=="
 }
 ```
+
+The search is executed by the WorkspaceIndex DO against its SQLite tables. `query` matches against the `search_terms` inverted index. `tags`, `path_prefix`, `modified_since` filter the `notes` metadata table. `backlinks_to` queries the `links` table.
+
+If `cursor` is present in the response, more results are available.
 
 ---
 
@@ -267,8 +298,8 @@ Get the link graph around a note. No content returned — just structure.
 {
   "path": "entities/person/jamie",
   "incoming": [
-    { "path": "daily/2026-02-24", "title": "2026-02-24" },
-    { "path": "projects/brainwaves-v2", "title": "Brainwaves V2" }
+    { "path": "daily/2026-02-24", "title": "2026-02-24", "context": "Discussed V2.1 launch with [[Jamie]]" },
+    { "path": "projects/brainwaves-v2", "title": "Brainwaves V2", "context": "Led by [[Jamie Wilson]]" }
   ],
   "outgoing": [
     { "path": "entities/company/brainwaves", "title": "Brainwaves" }
@@ -280,54 +311,62 @@ Get the link graph around a note. No content returned — just structure.
 
 ## cairn_daily
 
-Sugar for daily note operations. Handles date path construction and default templates.
+Sugar for daily note operations. Handles date path construction and auto-creation.
 
 ```json
 {
   "name": "cairn_daily",
-  "description": "Read or append to a daily note. Creates the note from workspace template if it doesn't exist. Date defaults to today.",
+  "description": "Read or append to a daily note. Creates the note with minimal frontmatter if it doesn't exist. Date defaults to today (in workspace timezone).",
   "inputSchema": {
     "type": "object",
     "required": ["op"],
     "properties": {
       "date": {
         "type": "string",
-        "description": "ISO date e.g. '2026-02-24'. Defaults to today."
+        "description": "ISO date e.g. '2026-02-24'. Defaults to today in workspace timezone."
       },
       "op": {
         "type": "string",
-        "enum": ["read", "append", "replace"],
-        "description": "Operation"
+        "enum": ["read", "append", "append_section", "prepend_section"],
+        "description": "Operation. 'read' returns the full note. Others delegate to cairn_patch."
       },
       "content": {
         "type": "string",
-        "description": "Content for append/replace ops"
+        "description": "Content for append/section ops"
       },
       "section": {
         "type": "string",
-        "description": "Target section heading e.g. '## Meetings'"
+        "description": "Heading text (without # prefix) for section ops e.g. 'Meetings'"
       }
     }
   }
 }
 ```
 
+**Behaviour:**
+- Constructs path: `daily/{date}` (e.g. `daily/2026-02-24`)
+- If note doesn't exist, creates it with frontmatter only (title = date, type = daily, tags = [daily])
+- `read` → delegates to `cairn_read`
+- `append`, `append_section`, `prepend_section` → delegates to `cairn_patch`
+
+Note: `replace` is not available on `cairn_daily`. Use `cairn_patch` directly with the daily note path if you need find-replace.
+
 ---
 
 ## cairn_list
 
-Lightweight directory listing.
+Lightweight directory listing with pagination.
 
 ```json
 {
   "name": "cairn_list",
-  "description": "List notes under a path prefix. Returns paths, titles, and modification dates. No content.",
+  "description": "List notes under a path prefix. Returns paths, titles, and modification dates. No content. Supports pagination.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "path_prefix": {
         "type": "string",
-        "description": "Folder to list. Default: root."
+        "description": "Path prefix to list. Default: root (all notes)."
       },
       "recursive": {
         "type": "boolean",
@@ -336,11 +375,15 @@ Lightweight directory listing.
       "sort": {
         "type": "string",
         "enum": ["modified", "created", "alpha"],
-        "description": "Sort order. Default 'modified'."
+        "description": "Sort order. Default 'modified' (most recent first)."
       },
       "limit": {
         "type": "integer",
-        "description": "Max results. Default 20."
+        "description": "Max results per page. Default 20."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Pagination cursor from previous response"
       }
     }
   }
@@ -352,12 +395,27 @@ Lightweight directory listing.
 {
   "path_prefix": "entities/person",
   "notes": [
-    { "path": "entities/person/jamie", "title": "Jamie Wilson", "modified": "2026-02-24T14:00:00Z" },
-    { "path": "entities/person/ben", "title": "Ben Smith", "modified": "2026-02-23T09:00:00Z" }
+    { "path": "entities/person/jamie", "title": "Jamie Wilson", "type": "person", "modified": "2026-02-24T14:00:00Z" },
+    { "path": "entities/person/ben", "title": "Ben Smith", "type": "person", "modified": "2026-02-23T09:00:00Z" }
   ],
-  "total": 2
+  "total": 15,
+  "cursor": "eyJvZmZzZXQiOjIwfQ=="
 }
 ```
+
+Listing is powered by the WorkspaceIndex DO's `notes` SQLite table, which provides sorting and filtering without reading R2 objects. If `cursor` is present, more results are available.
+
+---
+
+## Section Parameter Convention
+
+Several tools accept a `section` parameter. The convention is consistent across all tools:
+
+- Pass the **heading text only**, without `#` prefix
+- Example: `"Meetings"` not `"## Meetings"`
+- Matches the **first** heading in the document with that text, regardless of heading level (`#`, `##`, `###`, etc.)
+- If no heading matches, the tool returns a validation error
+- Section scope extends from the heading line to just before the next heading of the same or higher level, or end of document
 
 ---
 
@@ -371,3 +429,4 @@ These tools are designed to minimise round-trips and token usage:
 4. **`cairn_daily`** eliminates date path construction and template logic from the LLM.
 5. **`cairn_read` with `metadata_only`** lets the LLM check what exists without loading content.
 6. **`cairn_list`** provides navigation without content — useful for "what do we have on X" questions.
+7. **Pagination** on `cairn_list` and `cairn_search` prevents unbounded response sizes.

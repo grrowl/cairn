@@ -11,12 +11,41 @@ Read the full requirements in `docs/requirements.md`, architecture in `docs/arch
 Start from Cloudflare's official Google OAuth MCP template:
 
 ```bash
-npm create cloudflare@latest -- cairn --template=cloudflare/ai/demos/remote-mcp-google-oauth
+npm create cloudflare@latest -- cairn-template --template=cloudflare/ai/demos/remote-mcp-google-oauth
 ```
+
+This scaffolds into a `cairn-template/` directory. Then merge the generated files into the existing project directory:
+
+```bash
+# From the parent directory of both cairn/ and cairn-template/
+cp -r cairn-template/* cairn/
+cp cairn-template/.* cairn/ 2>/dev/null  # hidden files like .gitignore
+rm -rf cairn-template
+cd cairn
+npm install
+```
+
+The `docs/` folder already exists in `cairn/` — don't overwrite it. If any file conflicts (e.g. README.md), keep the generated version and update it.
 
 This gives us: McpAgent class, Durable Objects, Google OAuth via `workers-oauth-provider`, KV-backed token storage, streamable HTTP transport at `/mcp`, wrangler config with DO + KV bindings.
 
 We build on top of this, keeping its auth plumbing intact and adding R2 storage, workspace scoping, cairn tools, and a minimal admin frontend.
+
+## Key Design Principles
+
+Before starting implementation, internalise these:
+
+1. **R2 for content, DO SQLite for indexes.** Notes live in R2. All metadata, backlinks, search terms, and aliases live in the WorkspaceIndex Durable Object's SQLite storage. No JSON index files in R2.
+
+2. **Lightweight RPC.** The worker reads/writes R2 directly. It sends only extracted metadata (title, tags, aliases, links, modified) to the WorkspaceIndex DO — never full file content.
+
+3. **Workspace-scoped from day one.** All storage functions take `workspaceId` as a parameter from Phase 1. In early phases, auto-create a `"default"` workspace. No hardcoded workspace that needs refactoring later.
+
+4. **MCP-native errors.** All tool errors use `{ content: [{ type: "text", text: "error_type: message" }], isError: true }`.
+
+5. **Paginate everything.** `cairn_list` and `cairn_search` support cursor-based pagination from day one. R2 list returns max 1000 objects per call.
+
+6. **Don't rewrite the OAuth plumbing.** The template's `workers-oauth-provider` setup handles auth for both MCP clients and the browser frontend. Adapt, don't replace.
 
 ## Sequenced Implementation Phases
 
@@ -24,231 +53,406 @@ We build on top of this, keeping its auth plumbing intact and adding R2 storage,
 
 **Goal:** Template running locally with Google OAuth flow working.
 
-1. Bootstrap from template as above
+1. Bootstrap and merge as described above
 2. Rename the McpAgent class from `MyMCP` to `CairnMCP`
 3. Update wrangler.jsonc:
    - Add R2 bucket binding: `BUCKET` → `cairn-storage`
-   - Add a second Durable Object class `IndexWriter` for backlink/search index serialisation (new_sqlite_classes migration)
+   - Add a second Durable Object class `WorkspaceIndex`:
+     - Add to `durable_objects.bindings`: `{ "class_name": "WorkspaceIndex", "name": "WORKSPACE_INDEX" }`
+     - Add to `migrations`: new migration tag (e.g. `"v2"`) with `"new_sqlite_classes": ["WorkspaceIndex"]`
+     - **Export `WorkspaceIndex` from the worker entrypoint** (alongside `CairnMCP`)
    - Keep existing KV namespace for OAuth token storage (`OAUTH_KV`)
-   - Add `ADMIN_EMAIL` secret (used later for admin access)
-4. Verify: `npm run dev` → connect via MCP Inspector → Google OAuth flow completes → demo tools accessible
-5. Strip the demo tools (add, generateImage, etc.) from `init()`, replace with a single `cairn_ping` tool that returns `{ status: "ok", workspace: "default" }` to confirm the pipeline works
+   - Add `ADMIN_EMAIL` to secrets
+4. Create a stub `WorkspaceIndex` class that extends `DurableObject` with a `ping()` method
+5. Strip the demo tools (add, generateImage, etc.) from `init()`, replace with:
+   - `cairn_ping` — returns `{ status: "ok", timestamp: "..." }` to confirm MCP pipeline
+6. Verify: `npm run dev` → connect via MCP Inspector → Google OAuth flow completes → `cairn_ping` works → R2 binding accessible
 
 **Key files to understand from the template:**
 - `src/index.ts` — worker entrypoint, OAuthProvider wrapper, McpAgent export
-- `src/google-handler.ts` (or similar) — the Google OAuth authorize/callback flow
+- Google OAuth handler file — the authorize/callback flow with Google
 - `wrangler.jsonc` — bindings config
 
-### Phase 1: Storage Layer (R2 Notes CRUD)
+**Understand how the template passes user identity to the McpAgent.** The `Props` type parameter on `McpAgent<Env, State, Props>` contains auth context. The template's OAuth handler populates this. Our tools will access `this.props` to get the authenticated user's email.
 
-**Goal:** Read and write markdown notes to R2 with frontmatter parsing.
+### Phase 1: Storage Layer + WorkspaceIndex DO
 
-1. Create `src/storage/notes.ts` — a workspace-scoped R2 abstraction:
-   - `readNote(bucket, workspaceId, path)` → returns `{ frontmatter, body, raw }` or null
-   - `writeNote(bucket, workspaceId, path, content, metadata?)` → writes `{workspaceId}/notes/{path}.md` to R2 with custom metadata (title, tags, modified)
-   - `deleteNote(bucket, workspaceId, path)` → deletes the object
-   - `listNotes(bucket, workspaceId, prefix?, limit?)` → R2 list with prefix `{workspaceId}/notes/{prefix}`
-   - `patchNote(bucket, workspaceId, path, op, content, section?, find?)` → read-modify-write for append/prepend/replace/section ops
+**Goal:** Read and write markdown notes to R2, with WorkspaceIndex DO maintaining metadata in SQLite.
 
-2. Create `src/storage/frontmatter.ts` — YAML frontmatter parser/serialiser:
-   - `parseFrontmatter(raw)` → `{ frontmatter: Record<string, any>, body: string }`
-   - `serialiseFrontmatter(frontmatter, body)` → raw markdown string
-   - Use a lightweight YAML parser (js-yaml or hand-roll for the simple subset we need — Workers runtime constraints apply)
+#### R2 Note Operations
 
-3. Create `src/storage/markdown.ts` — section extraction and manipulation:
-   - `extractSection(body, heading)` → returns the content under that heading (until next heading of same/higher level)
-   - `appendToSection(body, heading, content)` → inserts content at end of section
-   - `prependToSection(body, heading, content)` → inserts content at start of section
-   - These are pure string operations on markdown, no AST needed
+Create `src/storage/notes.ts` — workspace-scoped R2 abstraction:
 
-4. Verify: Write a simple test script or use the cairn_ping tool to exercise read/write/list against R2 locally (wrangler dev provides local R2)
+- `readNote(bucket, workspaceId, path)` → returns `{ frontmatter, body, raw }` or null
+- `writeNote(bucket, workspaceId, path, content, frontmatterOverrides?)` → writes `{workspaceId}/notes/{path}.md` to R2 with custom metadata
+- `deleteNote(bucket, workspaceId, path)` → deletes the R2 object
+- `patchNote(bucket, workspaceId, path, op, content, section?, find?)` → read-modify-write for append/prepend/replace/section ops
 
-**Dependencies:** `js-yaml` (or similar, check Workers compatibility) for frontmatter parsing. If problematic, write a simple parser — our frontmatter is just key-value pairs, arrays, and dates.
+All functions take `workspaceId` as an explicit parameter. No hardcoded defaults.
+
+`writeNote` and `patchNote` both:
+- Set `modified` timestamp server-side
+- Set `created` only on first write (check if object exists)
+- Update R2 custom metadata: `title`, `type`, `tags` (comma-separated), `modified`
+- Return extracted metadata for passing to WorkspaceIndex: `{ title, type, tags, aliases, modified }`
+
+#### Frontmatter
+
+Create `src/storage/frontmatter.ts`:
+- `parseFrontmatter(raw)` → `{ frontmatter: Record<string, any>, body: string }`
+- `serialiseFrontmatter(frontmatter, body)` → raw markdown string with YAML frontmatter
+- Use `js-yaml` if it works in Workers. If not, hand-roll a parser — our frontmatter is just key-value pairs, arrays, and ISO dates.
+
+#### Markdown Sections
+
+Create `src/storage/markdown.ts`:
+- `extractSection(body, headingText)` → content under that heading (until next heading of same/higher level)
+- `appendToSection(body, headingText, content)` → insert at end of section
+- `prependToSection(body, headingText, content)` → insert after heading line
+
+Section matching: find the first line matching `/^#{1,6}\s+{headingText}\s*$/i`. The `headingText` parameter does **not** include the `#` prefix. Match is case-insensitive.
+
+These are pure string operations on markdown, no AST needed.
+
+#### WorkspaceIndex DO (SQLite)
+
+Create `src/storage/workspace-index.ts`:
+
+```typescript
+export class WorkspaceIndex extends DurableObject {
+  sql: SqlStorage;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.initTables();
+  }
+
+  private initTables() {
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS notes (
+        path TEXT PRIMARY KEY,
+        title TEXT,
+        type TEXT,
+        tags TEXT,
+        aliases TEXT,
+        created TEXT,
+        modified TEXT
+      );
+      CREATE TABLE IF NOT EXISTS links (
+        source_path TEXT NOT NULL,
+        target_path TEXT NOT NULL,
+        context TEXT,
+        PRIMARY KEY (source_path, target_path)
+      );
+      CREATE TABLE IF NOT EXISTS aliases (
+        alias TEXT PRIMARY KEY,
+        canonical_path TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS search_terms (
+        term TEXT NOT NULL,
+        path TEXT NOT NULL,
+        PRIMARY KEY (term, path)
+      );
+    `);
+  }
+
+  async noteUpdated(path: string, metadata: NoteMetadata): Promise<void> { ... }
+  async noteDeleted(path: string): Promise<void> { ... }
+  async search(params: SearchParams): Promise<SearchResult> { ... }
+  async listNotes(params: ListParams): Promise<ListResult> { ... }
+  async getLinks(path: string, depth: number, direction: string): Promise<LinkResult> { ... }
+  async resolveAlias(alias: string): Promise<string | null> { ... }
+  async rebuildIndex(): Promise<{ notes_indexed: number }> { ... }
+}
+```
+
+For Phase 1, implement:
+- `initTables()` — create SQLite tables
+- `noteUpdated()` — upsert into `notes` table, update `search_terms` (simple word tokenisation), update `aliases`
+- `noteDeleted()` — remove from all tables
+- `listNotes()` — query `notes` table with optional prefix filter, sort, limit, cursor
+
+Defer `search()`, `getLinks()`, `resolveAlias()`, and `rebuildIndex()` to later phases (return empty results / not-implemented for now).
+
+**Tokenisation** for `search_terms`: lowercase, split on whitespace + punctuation, remove tokens < 3 chars. No stemming.
+
+#### Verify
+
+Write notes via `cairn_ping` (temporarily extended) or a test script against local R2. Confirm:
+- Note written to R2 at correct key
+- Frontmatter parsed correctly
+- R2 custom metadata set
+- WorkspaceIndex DO receives `noteUpdated()` and SQLite tables populated
 
 ### Phase 2: Core MCP Tools (Read, Write, List, Daily)
 
 **Goal:** The four most-used tools working end-to-end.
 
-For now, hardcode workspace to `"default"` — we'll add workspace routing in Phase 4.
+Auto-create a `"default"` workspace on first request if it doesn't exist (check `_system/workspaces/default.json` in R2). The workspace ID comes from the URL path — `/{workspaceId}/mcp`. All tools read `workspaceId` from `this.props`.
 
-1. Register tools in `CairnMCP.init()`:
+Register tools in `CairnMCP.init()`:
 
-   **`cairn_read`** — calls `readNote()`, optionally extracts section, optionally returns metadata_only (frontmatter + placeholder backlinks array)
+**`cairn_read`**
+- Calls `readNote()` from R2
+- If `section` provided: extract section from body
+- If `metadata_only: true`: return frontmatter only (backlinks from WorkspaceIndex deferred to Phase 4)
+- Return as MCP text content block (raw markdown with frontmatter)
 
-   **`cairn_write`** — calls `writeNote()`, merges explicit tags/aliases params with any frontmatter in content, sets `created`/`modified` timestamps
+**`cairn_write`**
+- Parse incoming content for frontmatter
+- Merge explicit `tags`/`aliases` params with frontmatter from content
+- Call `writeNote()` to R2
+- Extract wikilinks from body (simple regex: `/\[\[([^\]]+)\]\]/g` — full parser in Phase 4)
+- Call `WorkspaceIndex.noteUpdated()` with extracted metadata
+- Return success with path and whether note was created
 
-   **`cairn_list`** — calls `listNotes()`, returns paths + titles + modified dates (pulled from R2 custom metadata for efficiency — avoid reading full objects)
+**`cairn_list`**
+- Call `WorkspaceIndex.listNotes()` with params from tool input
+- Return paths, titles, types, modified dates
+- Include `cursor` in response if more results available
 
-   **`cairn_daily`** — sugar: constructs path as `daily/YYYY-MM-DD` (default today, respect timezone from request or default UTC+11 for Melbourne), creates note from template if it doesn't exist, delegates to read/patch operations
+**`cairn_daily`**
+- Construct path: `daily/{date}` where date defaults to today in workspace timezone
+- If note doesn't exist: create with frontmatter only (title=date, type=daily, tags=[daily])
+- `read` → delegate to `cairn_read`
+- `append`, `append_section`, `prepend_section` → delegate to `cairn_patch` (Phase 3 — for now, only `read` works)
 
-2. Tool input schemas: use `zod` (already in template dependencies) to define schemas matching `docs/mcp-spec.md`
+Tool input schemas: use `zod` (already in template dependencies) to define schemas matching `docs/mcp-spec.md`.
 
-3. Tool responses: return MCP text content blocks. Keep responses compact — the LLM is the consumer.
-
-4. Verify: Connect via MCP Inspector or Claude, create a daily note, write an entity note, read them back, list notes.
+**Verify:** Connect via MCP Inspector or Claude → create a daily note → write an entity note → read them back → list notes.
 
 ### Phase 3: Patch, Delete, Search
 
-**Goal:** Complete the remaining tools.
+**Goal:** Complete the tool set.
 
-1. **`cairn_patch`** — calls `patchNote()`. This is the workhorse for incremental knowledge building. Operations: append, prepend, replace, append_section, prepend_section. `replace` op requires `find` param, fails if substring not found or ambiguous (appears more than once).
+**`cairn_patch`**
+- Call `patchNote()` — reads from R2, applies operation, writes back
+- Operations: `append`, `prepend`, `replace`, `append_section`, `prepend_section`
+- Validation: `replace` requires `find`; section ops require `section`; `find` must match exactly once
+- After write: update R2 custom metadata, call `WorkspaceIndex.noteUpdated()` with re-extracted metadata and wikilinks
+- This is the workhorse for incremental knowledge building
 
-2. **`cairn_delete`** — calls `deleteNote()`. For now, skip the `remove_backlinks` cleanup (implement in Phase 5 with backlink index). Just delete the R2 object.
+**`cairn_delete`**
+- Delete R2 object
+- Call `WorkspaceIndex.noteDeleted()`
+- Returns success with deleted path
 
-3. **`cairn_search`** — MVP implementation: R2 list + filter. List all notes under workspace prefix, read custom metadata (title, tags) for filtering. For `query` param, do a simple substring match against note content (read full objects — this is expensive but fine for <1000 notes). Return snippets (first 200 chars of matching content). Later (Phase 5) we replace this with an index.
+**`cairn_search`**
+- Validate: at least one of `query`, `tags`, `path_prefix`, `backlinks_to`, `modified_since` required
+- Call `WorkspaceIndex.search()` which queries SQLite:
+  - `query` → match against `search_terms` table, return matching paths
+  - `tags` → filter `notes` table where tags JSON contains all specified tags
+  - `path_prefix` → `WHERE path LIKE '{prefix}%'`
+  - `modified_since` → `WHERE modified > '{date}'`
+  - `backlinks_to` → `WHERE target_path = '{path}'` in `links` table
+  - Combine filters with AND
+- Return snippets: for each result, read first 200 chars of note body from R2 (or use the search context if from backlinks)
+- Support cursor-based pagination
 
-4. Verify: Patch a daily note with meeting content, delete a test note, search for keywords.
+**Update `cairn_daily`** to support all ops (now that `cairn_patch` exists).
 
-### Phase 4: Workspace Scoping & Multi-Tenancy
+**Verify:** Patch a daily note with meeting content → delete a test note → search by keyword → search by tag → verify pagination.
 
-**Goal:** MCP endpoint scoped per workspace, basic workspace management.
+### Phase 4: Backlinks, Aliases & Link Graph
 
-1. **URL routing:** Change the MCP endpoint from `/mcp` to `/:workspaceId/mcp`. This requires modifying the worker's fetch handler to:
-   - Extract `workspaceId` from the URL path
-   - Pass it through to the McpAgent (via props or context)
-   - The CairnMCP agent reads `workspaceId` from its props and uses it to scope all R2 operations
+**Goal:** Full wikilink resolution, bidirectional backlinks, `cairn_links` tool.
 
-   **Important:** The OAuthProvider wrapper from the template intercepts requests at specific paths (`/authorize`, `/callback`, `/token`, etc.). We need to ensure workspace-scoped MCP paths don't collide with these. The OAuth paths should remain at the root level.
+**WikiLink Parser** — `src/storage/wikilinks.ts`:
+- `extractLinks(body)` → returns `[{ raw: "[[Jamie Wilson]]", target: "jamie-wilson", display: "Jamie Wilson" }]`
+- Handle aliased links: `[[Jamie Wilson|Jamie]]` → target: `"jamie-wilson"`, display: `"Jamie"`
+- Handle path links: `[[daily/2026-02-24]]` → target: `"daily/2026-02-24"`
+- Normalise targets to lowercase slugs (replace spaces with hyphens, strip special chars)
 
-2. **Workspace metadata:** Store workspace config at `_system/workspaces/{id}.json` in R2:
-   ```json
-   {
-     "id": "brainwaves",
-     "name": "Brainwaves",
-     "created_at": "...",
-     "created_by": "tom@example.com",
-     "members": [
-       { "email": "tom@example.com", "role": "owner" },
-       { "email": "jamie@example.com", "role": "member" }
-     ],
-     "settings": {
-       "daily_note_template": "## Meetings\n\n## Decisions\n\n## Notes\n",
-       "entity_types": ["person", "company", "project", "topic"],
-       "timezone": "Australia/Melbourne"
-     }
-   }
-   ```
+**Update `WorkspaceIndex.noteUpdated()`:**
+- Accept `links` array: `[{ target, context }]` where context is ~50 chars around the link
+- Diff against existing outgoing links in `links` table
+- Update `links` table (add new, remove old)
+- For each link target, attempt alias resolution from `aliases` table
 
-3. **Membership check:** On each MCP request, after OAuth validation:
-   - Read workspace metadata from R2
-   - Check if the authenticated user's email is in the members list
-   - OR if the user's email matches `ADMIN_EMAIL` (admin override)
-   - Reject with `unauthorized` if neither
+**Update `WorkspaceIndex.noteUpdated()` for aliases:**
+- When note has `aliases` in metadata, update `aliases` table
+- Delete old aliases for this path, insert new ones (normalised lowercase)
 
-4. **User records:** Store at `_system/users/{email}.json` — list of workspace memberships for fast lookup. Updated when workspace membership changes.
+**Implement `WorkspaceIndex.resolveAlias()`:**
+- Query `aliases` table, return canonical path or null
 
-5. **Workspace REST API** (minimal, for the admin frontend):
-   ```
-   GET  /api/workspaces              — list workspaces for current user
-   POST /api/workspaces              — create workspace
-   GET  /api/workspaces/:id          — workspace details
-   POST /api/workspaces/:id/members  — invite member (by email)
-   DELETE /api/workspaces/:id/members/:email — remove member
-   ```
-   These routes are handled by the worker's fetch handler, authenticated via the same OAuth session. Add these routes alongside the OAuthProvider handler.
+**Implement `WorkspaceIndex.getLinks()`:**
+- Query `links` table for incoming (`WHERE target_path = ?`) and outgoing (`WHERE source_path = ?`)
+- Support `depth > 1` via recursive queries (or iterative BFS up to max depth 3)
+- Join with `notes` table for titles
+- Return structure only, no content
 
-6. Verify: Create two workspaces, add a member to one, confirm MCP tools are scoped correctly, confirm non-members are rejected.
+**`cairn_links` tool:**
+- Call `WorkspaceIndex.getLinks()` with path, depth, direction
+- Return incoming/outgoing arrays with path, title, context
 
-### Phase 5: Backlink Index & Link Graph
+**Update `cairn_read` (metadata_only):**
+- When `metadata_only: true`, also query `WorkspaceIndex.getLinks()` for backlink list
+- Include in frontmatter output
 
-**Goal:** Bidirectional backlinks working, `cairn_links` tool, alias resolution.
+**Update `cairn_write` and `cairn_patch`:**
+- Use the full wikilink parser (replacing the simple regex from Phase 2)
+- Pass extracted links with context to `WorkspaceIndex.noteUpdated()`
 
-1. **Wiki-link parser** — `src/storage/wikilinks.ts`:
-   - `extractLinks(body)` → returns array of `{ raw: "[[Jamie Wilson]]", target: "jamie-wilson" }` (normalised to path-friendly slug)
-   - Handle aliased links: `[[Jamie Wilson|Jamie]]` syntax
+**Verify:** Write notes with `[[wikilinks]]` → confirm backlinks in index → query link graph → verify alias resolution → `cairn_read` with `metadata_only` shows backlinks.
 
-2. **Alias index** — stored at `{workspaceId}/index/aliases.json`:
-   - Map of `alias → canonical path` e.g. `{ "jamie": "entities/person/jamie-wilson", "jw": "entities/person/jamie-wilson" }`
-   - Updated on `cairn_write` when note has `aliases` in frontmatter
-   - Used during link resolution: `[[Jamie]]` → lookup alias → resolve to `entities/person/jamie-wilson`
+### Phase 5: Workspace Management & Multi-Tenancy
 
-3. **Backlink index** — stored at `{workspaceId}/index/backlinks.json`:
-   - Map of `path → { incoming: [{ from, context }], outgoing: [path] }`
-   - Updated on every write/patch/delete
+**Goal:** Full workspace lifecycle, membership checks, REST API.
 
-4. **IndexWriter Durable Object** — serialises index mutations:
-   - Receives messages: `{ op: "update_links", workspaceId, path, oldLinks, newLinks, aliases }`
-   - Reads current index from R2, applies diff, writes back
-   - Keyed by workspaceId so each workspace has its own DO instance
+**Workspace ID Generation:**
+- Use `unique-names-generator` (or implement a simple version): pick random adjective + noun from curated word lists using `crypto.getRandomValues()`
+- Format: `{adjective}_{noun}` e.g. `bright_falcon`
+- Also accept custom slugs from user
+- Validate: 3-40 chars, lowercase alphanumeric + hyphens + underscores, not starting with `_`, not colliding with reserved routes
 
-5. **`cairn_links` tool** — reads backlink index, returns incoming/outgoing for a path at given depth. No content, just structure.
+**Workspace CRUD** (`src/workspaces/routes.ts`):
+```
+GET  /api/workspaces              — list workspaces for current user
+POST /api/workspaces              — create workspace (auto-generate ID or accept custom slug)
+GET  /api/workspaces/:id          — workspace details
+PUT  /api/workspaces/:id          — update workspace settings
+DELETE /api/workspaces/:id        — delete workspace (admin only)
+```
 
-6. **Update `cairn_read`** — when `metadata_only: true`, include actual backlinks from the index.
+**Member Management:**
+```
+GET    /api/workspaces/:id/members        — list members
+POST   /api/workspaces/:id/members        — invite member (by email)
+DELETE /api/workspaces/:id/members/:email — remove member
+```
 
-7. **Update `cairn_delete`** — when `remove_backlinks: true` (default), send cleanup message to IndexWriter to remove references from other notes' outgoing links.
+**User Records** (`_system/users/{email}.json`):
+```json
+{
+  "email": "tom@example.com",
+  "name": "Tom",
+  "workspaces": ["brainwaves", "personal"],
+  "updated_at": "2026-02-24T00:00:00Z"
+}
+```
 
-8. **Update `cairn_search`** — add `backlinks_to` param that reads from the backlink index instead of scanning notes.
+Updated when workspace membership changes. Used for fast "list my workspaces" lookup.
 
-9. Verify: Write notes with `[[wikilinks]]`, confirm backlinks indexed, query link graph, verify alias resolution.
+**Membership Middleware** (`src/workspaces/membership.ts`):
+- On every MCP and API request that includes a workspace ID:
+  - Read workspace metadata from R2
+  - Check user email in members list OR matches `ADMIN_EMAIL`
+  - Reject with MCP error / HTTP 403 if neither
+  - Attach workspace context to request
+
+**Admin Endpoint:**
+```
+POST /api/workspaces/:id/rebuild-index — triggers WorkspaceIndex.rebuildIndex()
+```
+
+**Implement `WorkspaceIndex.rebuildIndex()`:**
+- List all R2 objects under `{workspaceId}/notes/`
+- For each: read note, parse frontmatter, extract wikilinks
+- Clear all SQLite tables
+- Repopulate from scratch
+- Return `{ notes_indexed: N }`
+- The DO accesses R2 via `this.env.BUCKET`
+
+**Remove auto-create "default" workspace.** Now that we have proper workspace creation, require explicit creation.
+
+**Verify:** Create workspace via API → invite member → confirm MCP tools scoped correctly → non-members rejected → rebuild index works.
 
 ### Phase 6: Admin Frontend
 
 **Goal:** Minimal web UI for workspace and member management.
 
-1. **Single HTML file** served from the worker at `/` — no build step, no framework:
-   - Inline JS + CSS
-   - Client-side routing via hash fragments
-   - Auth: uses the same session cookie from Google OAuth
+**Single HTML file** served from the worker at `/` — no build step, no framework:
+- Inline JS + CSS
+- Client-side routing via hash fragments
+- Auth: uses the same OAuth flow — SPA initiates `/authorize`, stores bearer token in memory, uses it for API calls
 
-2. **Pages:**
-   - `#/login` — Google sign-in button (redirects to `/authorize`)
-   - `#/workspaces` — list workspaces, create new
-   - `#/workspaces/:id` — settings, member list, invite by email, remove member
-   - `#/workspaces/:id/notes` — (stretch) simple tree view of notes with markdown preview
+**Pages:**
+- `#/login` — Google sign-in button (redirects to `/authorize`)
+- `#/workspaces` — list workspaces, create new (with auto-generated or custom ID)
+- `#/workspaces/:id` — settings, member list, invite by email, remove member, rebuild index button
+- `#/workspaces/:id/notes` — (stretch) simple tree view of notes with markdown preview
 
-3. **Styling:** Minimal, clean. Dark theme. Think Obsidian's settings panel, not a full note editor. We're managing access, not editing notes — that's what the MCP tools are for.
+**Styling:** Minimal, clean. Dark theme. Think Obsidian's settings panel, not a full note editor. We're managing access, not editing notes — that's what the MCP tools are for.
 
-4. Verify: Sign in, create workspace, invite a member, see workspace list.
+**Verify:** Sign in → create workspace → invite member → see workspace list → rebuild index from UI.
 
-### Phase 7: Search Index (Upgrade)
+### Phase 7: Polish & Hardening
 
-**Goal:** Replace the brute-force search from Phase 3 with an inverted index.
+**Goal:** Production readiness.
 
-1. **Search index** — stored at `{workspaceId}/index/search.json`:
-   - Inverted index: `term → [path, ...]`
-   - Metadata cache: `path → { title, tags, modified }`
-   - Updated via IndexWriter DO alongside backlink updates
+1. **Search quality:** Review tokenisation. Consider adding bigrams or prefix matching for better search results. If DO SQLite supports FTS5, evaluate migrating `search_terms` to an FTS5 virtual table.
 
-2. **Tokenisation:** Simple word-level tokenisation, lowercase, strip punctuation. No stemming for MVP.
+2. **Rebuild index robustness:** Handle large workspaces (pagination of R2 list, batch SQLite inserts). Add progress reporting.
 
-3. **Update `cairn_search`** to use the index for `query` param. Fall back to metadata cache for `tags` and `modified_since` filters.
+3. **Error handling audit:** Ensure all R2 failures, DO communication errors, and edge cases return proper MCP errors. No unhandled promise rejections.
 
-4. **Index size management:** For workspaces with many notes, the single JSON blob will get large. Add a check: if index exceeds ~1MB, log a warning. Migration path is D1 or Vectorize (out of scope).
+4. **Rate limiting:** Basic rate limiting on REST API endpoints (workspace creation, member invites) to prevent abuse.
 
-5. Verify: Write 50+ notes, search by keyword, confirm results are fast and accurate.
+5. **Logging:** Structured logging for debugging. Use `console.log` with JSON payloads. Cloudflare's observability (already enabled in wrangler.jsonc) captures these.
+
+6. **Documentation:** Update README with setup instructions, usage examples, MCP client config snippets for Claude/Cursor.
 
 ## Key Technical Decisions
 
 ### Workers-OAuth-Provider Library
+
 The template uses `workers-oauth-provider` which implements OAuth 2.1 provider semantics. The worker acts as BOTH an OAuth client to Google AND an OAuth server to MCP clients. This means:
 - MCP clients (Claude, Cursor, etc.) authenticate to our worker using MCP's standard OAuth flow
 - Our worker then authenticates the user with Google behind the scenes
 - The worker issues its own tokens to MCP clients
+- The admin frontend uses the same OAuth flow, storing the bearer token in memory
 - This is the correct pattern per the MCP spec — don't try to shortcut it
 
-### Secrets in Env Vars (Not KV)
-For now, use standard wrangler secrets (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `COOKIE_ENCRYPTION_KEY`, `ADMIN_EMAIL`). The KV secrets pattern from the community fork adds complexity we don't need for a single-server deployment. If we later need to share secrets across multiple workers, we can layer it in.
+### Secrets
 
-### R2 Object Key Schema
+Use standard wrangler secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `COOKIE_ENCRYPTION_KEY`, `ADMIN_EMAIL`. The template also uses KV (`OAUTH_KV`) for OAuth token storage — this is separate from secrets and managed automatically.
+
+### R2 Object Key Schema (Simplified)
+
 ```
-{workspaceId}/notes/{path}.md          — note content
-{workspaceId}/index/backlinks.json     — backlink index
-{workspaceId}/index/search.json        — search index
-{workspaceId}/index/aliases.json       — alias → path mapping
-_system/workspaces/{workspaceId}.json  — workspace metadata
+{workspaceId}/notes/{path}.md          — note content (markdown + YAML frontmatter)
+_system/workspaces/{workspaceId}.json  — workspace metadata + members
 _system/users/{email}.json             — user workspace memberships
 ```
 
+No index files in R2. All indexes live in WorkspaceIndex DO SQLite.
+
 ### Durable Object Strategy
-Two DO classes:
-- `CairnMCP` (from McpAgent) — handles MCP sessions, one instance per client connection
-- `IndexWriter` — serialises index mutations, one instance per workspace (keyed by workspaceId)
 
-### Frontmatter Approach
-Notes use YAML frontmatter. The `modified` timestamp is always set server-side on write/patch. `created` is set only on first write. Tags and aliases in frontmatter are the source of truth, but can also be set via tool params (merged on write).
+Two DO classes exported from the worker:
 
-### Daily Note Timezone
-Default to `Australia/Melbourne` (UTC+11). Configurable per workspace in settings. The `cairn_daily` tool uses this to determine "today".
+- `CairnMCP` (extends McpAgent) — handles MCP sessions, one instance per client connection
+- `WorkspaceIndex` (extends DurableObject) — maintains all indexes in SQLite, one instance per workspace (keyed by workspaceId)
+
+The worker gets a WorkspaceIndex stub via:
+```typescript
+const id = this.env.WORKSPACE_INDEX.idFromName(workspaceId);
+const index = this.env.WORKSPACE_INDEX.get(id);
+await index.noteUpdated(path, metadata);
+```
+
+### R2 ↔ DO Data Flow
+
+**Critical:** File content never crosses the DO RPC boundary during normal operations. The pattern is:
+
+| Operation | Worker does | DO receives |
+|-----------|------------|-------------|
+| Write/Patch | Parse frontmatter, extract wikilinks, write to R2 | `noteUpdated(path, { title, type, tags, aliases, links, modified })` |
+| Delete | Delete from R2 | `noteDeleted(path)` |
+| Search | Receives results, optionally reads R2 for snippets | `search(params)` → returns `{ path, title, snippet?, tags, modified }[]` |
+| List | — | `listNotes(params)` → returns `{ path, title, type, modified }[]` |
+| Links | — | `getLinks(path, depth, direction)` → returns `{ incoming[], outgoing[] }` |
+| Rebuild | — | DO reads R2 directly via `this.env.BUCKET` |
+
+### Section Convention
+
+All tools use heading text **without** `#` prefix. Example: `"Meetings"` not `"## Meetings"`. Matches first heading with that text, case-insensitive, regardless of level.
+
+### Daily Notes
+
+Path: `daily/YYYY-MM-DD`. Timezone from workspace settings (default `Australia/Melbourne`). Created with frontmatter only (no template content). Content added via `cairn_patch` or `cairn_daily` append ops.
 
 ## File Structure (Target)
 
@@ -260,7 +464,7 @@ cairn/
 │   ├── mcp-spec.md
 │   └── implementation-plan.md    ← this file
 ├── src/
-│   ├── index.ts                  ← worker entrypoint, router, OAuthProvider
+│   ├── index.ts                  ← worker entrypoint, OAuthProvider, exports CairnMCP + WorkspaceIndex
 │   ├── google-handler.ts         ← Google OAuth flow (from template, adapted)
 │   ├── mcp/
 │   │   ├── agent.ts              ← CairnMCP class extending McpAgent
@@ -278,13 +482,14 @@ cairn/
 │   │   ├── frontmatter.ts        ← YAML frontmatter parse/serialise
 │   │   ├── markdown.ts           ← section extraction/manipulation
 │   │   ├── wikilinks.ts          ← [[link]] parser + alias resolution
-│   │   └── index-writer.ts       ← IndexWriter Durable Object
+│   │   └── workspace-index.ts    ← WorkspaceIndex Durable Object (SQLite)
 │   ├── workspaces/
 │   │   ├── routes.ts             ← REST API for workspace management
 │   │   ├── membership.ts         ← membership check middleware
+│   │   ├── id-generator.ts       ← adjective_noun workspace ID generation
 │   │   └── types.ts
 │   ├── auth/
-│   │   └── middleware.ts         ← session validation, user context extraction
+│   │   └── middleware.ts         ← token validation, user context extraction
 │   └── frontend/
 │       └── index.html            ← admin SPA
 ├── wrangler.jsonc
@@ -294,13 +499,15 @@ cairn/
 
 ## Order of Operations for Claude Code
 
-1. Run the bootstrap command, verify it works with `npm run dev`
-2. Read the generated template code thoroughly before changing anything
+1. Run the bootstrap and merge steps, verify template works with `npm run dev`
+2. **Read the generated template code thoroughly before changing anything** — understand how OAuthProvider wraps the worker, how props flow to McpAgent, how DO bindings work
 3. Follow phases 0→7 in sequence — each phase should result in testable functionality
 4. After each phase, verify with MCP Inspector before moving on
 5. Keep the OAuth plumbing from the template as-is — adapt, don't rewrite
 6. When adding R2 operations, test locally first (wrangler dev provides local R2 emulation)
-7. For the frontend (Phase 6), keep it dead simple — single HTML file, no build step
+7. All storage functions take `workspaceId` from Phase 1 — no refactoring needed when multi-tenancy arrives
+8. For the frontend (Phase 6), keep it dead simple — single HTML file, no build step
+9. When in doubt about DO communication, remember: send metadata not content over RPC
 
 ## Testing Strategy
 
@@ -308,7 +515,7 @@ cairn/
 - **wrangler dev** for local development with R2/KV/DO emulation
 - **curl** for REST API endpoints (workspace management)
 - **Browser** for OAuth flow and frontend testing
-- Manual smoke test: create workspace → write daily note → add entity with aliases → verify backlinks → search
+- Manual smoke test: create workspace → write daily note → add entity with aliases → patch daily note → verify backlinks → search → rebuild index
 
 ## Deployment
 
@@ -316,19 +523,20 @@ cairn/
 # Create R2 bucket
 npx wrangler r2 bucket create cairn-storage
 
-# Create KV namespace (for OAuth)
+# Create KV namespace (for OAuth token storage)
 npx wrangler kv namespace create cairn-oauth-kv
+# Update wrangler.jsonc with the returned KV namespace ID
 
 # Set secrets
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
-npx wrangler secret put COOKIE_ENCRYPTION_KEY
+npx wrangler secret put COOKIE_ENCRYPTION_KEY  # generate with: openssl rand -hex 32
 npx wrangler secret put ADMIN_EMAIL
 
 # Deploy
 npx wrangler deploy
 ```
 
-Remember to create a Google Cloud OAuth client with:
+Google Cloud OAuth client config:
 - Authorized redirect URI: `https://cairn.<subdomain>.workers.dev/callback`
 - Scopes: `openid email profile`
