@@ -1,8 +1,8 @@
-# Cairn
+# cairn
 
-**Persistent, Obsidian-like memory for your AI assistants.**
+**Obsidian-like memory vault for your AI assistants.**
 
-Shared, structured, back-linked markdown notes — accessible to all your AI agents via [MCP](https://modelcontextprotocol.io). WikiLinks, backlinks, daily notes, full-text search, and a sensible minimal tool interface designed to be a shared knowledge vault across Claude, Cursor, and any MCP client.
+Shared, structured, back-linked markdown notes — accessible to all your AI agents via [MCP](https://modelcontextprotocol.io). WikiLinks, backlinks, daily notes, full-text search, and a sensible minimal tool interface designed to be a shareable knowledge vault across Claude, Cursor, and any MCP client.
 
 **Try it now at [cairn.place](https://cairn.place)**
 
