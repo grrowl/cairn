@@ -417,8 +417,19 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
     const msg = $('admin-msg');
     msg.innerHTML = '<span style="color:var(--fg2)">Rebuilding index...</span>';
     try {
-      const result = await api(`/api/workspaces/${wsId}/rebuild-index`, { method: 'POST' });
-      msg.innerHTML = `<div class="success">Index rebuilt: ${result.notes_indexed} notes indexed</div>`;
+      await api(`/api/workspaces/${wsId}/rebuild-index`, { method: 'POST' });
+      async function poll() {
+        try {
+          const result = await api(`/api/workspaces/${wsId}/rebuild-index`);
+          if (result.status === 'rebuilding') {
+            msg.innerHTML = `<span style="color:var(--fg2)">Rebuilding... ${result.notes_indexed} notes indexed</span>`;
+            setTimeout(poll, 1000);
+          } else {
+            msg.innerHTML = `<div class="success">Index rebuilt: ${result.notes_indexed} notes indexed${result.errors ? ` (${result.errors} errors)` : ''}</div>`;
+          }
+        } catch (e) { msg.innerHTML = `<div class="error">${escHtml(e.message)}</div>`; }
+      }
+      setTimeout(poll, 500);
     } catch (e) { msg.innerHTML = `<div class="error">${escHtml(e.message)}</div>`; }
   };
 

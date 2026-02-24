@@ -283,7 +283,19 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); margin-right: 0.75rem;
   window.__rebuildIndex = function(wsId) {
     var msg = $('admin-msg');
     msg.innerHTML = '<span style="color:var(--fg2)">Rebuilding index...</span>';
-    api('/api/workspaces/' + wsId + '/rebuild-index', { method: 'POST' }).then(function(result) { msg.innerHTML = '<div class="success">Index rebuilt: ' + result.notes_indexed + ' notes indexed</div>'; }).catch(function(e) { msg.innerHTML = '<div class="error">' + escHtml(e.message) + '</div>'; });
+    api('/api/workspaces/' + wsId + '/rebuild-index', { method: 'POST' }).then(function() {
+      function poll() {
+        api('/api/workspaces/' + wsId + '/rebuild-index').then(function(result) {
+          if (result.status === 'rebuilding') {
+            msg.innerHTML = '<span style="color:var(--fg2)">Rebuilding... ' + result.notes_indexed + ' notes indexed</span>';
+            setTimeout(poll, 1000);
+          } else {
+            msg.innerHTML = '<div class="success">Index rebuilt: ' + result.notes_indexed + ' notes indexed' + (result.errors ? ' (' + result.errors + ' errors)' : '') + '</div>';
+          }
+        }).catch(function(e) { msg.innerHTML = '<div class="error">' + escHtml(e.message) + '</div>'; });
+      }
+      setTimeout(poll, 500);
+    }).catch(function(e) { msg.innerHTML = '<div class="error">' + escHtml(e.message) + '</div>'; });
   };
 
   window.__copy = function(el) {

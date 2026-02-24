@@ -318,3 +318,26 @@ workspaceRoutes.post("/api/workspaces/:id/rebuild-index", async (c) => {
 
 	return c.json(result);
 });
+
+// Rebuild index status (admin/owner only)
+workspaceRoutes.get("/api/workspaces/:id/rebuild-index", async (c) => {
+	const { email } = c.get("auth");
+	const bucket = c.env.BUCKET;
+	const workspaceId = c.req.param("id");
+
+	const workspace = await getWorkspaceMetadata(bucket, workspaceId);
+	if (!workspace) {
+		return c.json({ error: "Workspace not found" }, 404);
+	}
+
+	const { authorized, role } = checkMembership(workspace, email, c.env.ADMIN_EMAIL);
+	if (!authorized || (role !== "owner" && role !== "admin")) {
+		return c.json({ error: "Only owners and admins can check rebuild status" }, 403);
+	}
+
+	const indexId = c.env.WORKSPACE_INDEX.idFromName(workspaceId);
+	const index = c.env.WORKSPACE_INDEX.get(indexId);
+	const result = await (index as any).rebuildStatus();
+
+	return c.json(result);
+});

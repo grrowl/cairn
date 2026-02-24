@@ -426,62 +426,105 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		return rows.length > 0 ? rows[0].canonical_path : null;
 	}
 
-	async rebuildIndex(workspaceId?: string): Promise<{ notes_indexed: number }> {
+	private static REBUILD_BATCH_SIZE = 50;
+
+	async rebuildIndex(workspaceId?: string): Promise<{ status: string; notes_indexed: number }> {
+		if (!workspaceId) {
+			return { status: "complete", notes_indexed: 0 };
+		}
+
 		// Clear all existing data
 		this.sql.exec("DELETE FROM notes");
 		this.sql.exec("DELETE FROM links");
 		this.sql.exec("DELETE FROM aliases");
 		this.sql.exec("DELETE FROM search_terms");
 
+		// Store rebuild state and kick off first batch via alarm
+		await this.ctx.storage.put("rebuild_workspace_id", workspaceId);
+		await this.ctx.storage.put("rebuild_cursor", "");
+		await this.ctx.storage.put("rebuild_indexed", 0);
+		await this.ctx.storage.put("rebuild_errors", 0);
+		await this.ctx.storage.put("rebuild_status", "rebuilding");
+
+		// Set alarm for immediate execution
+		await this.ctx.storage.setAlarm(Date.now() + 10);
+
+		return { status: "rebuilding", notes_indexed: 0 };
+	}
+
+	async rebuildStatus(): Promise<{ status: string; notes_indexed: number; errors: number }> {
+		const status = (await this.ctx.storage.get<string>("rebuild_status")) || "idle";
+		const indexed = (await this.ctx.storage.get<number>("rebuild_indexed")) || 0;
+		const errors = (await this.ctx.storage.get<number>("rebuild_errors")) || 0;
+		return { status, notes_indexed: indexed, errors };
+	}
+
+	async alarm(): Promise<void> {
+		const status = await this.ctx.storage.get<string>("rebuild_status");
+		if (status !== "rebuilding") return;
+
+		const workspaceId = await this.ctx.storage.get<string>("rebuild_workspace_id");
 		if (!workspaceId) {
-			return { notes_indexed: 0 };
+			await this.ctx.storage.put("rebuild_status", "error");
+			return;
 		}
 
+		const storedCursor = await this.ctx.storage.get<string>("rebuild_cursor");
+		let indexed = (await this.ctx.storage.get<number>("rebuild_indexed")) || 0;
+		let errors = (await this.ctx.storage.get<number>("rebuild_errors")) || 0;
+
 		const bucket = this.env.BUCKET;
-		let notesIndexed = 0;
-		let cursor: string | undefined;
+		const listOpts: R2ListOptions = { prefix: `${workspaceId}/notes/`, limit: WorkspaceIndex.REBUILD_BATCH_SIZE };
+		if (storedCursor) listOpts.cursor = storedCursor;
 
-		do {
-			const listed = await bucket.list({
-				prefix: `${workspaceId}/notes/`,
-				cursor,
-			});
+		const listed = await bucket.list(listOpts);
 
-			for (const obj of listed.objects) {
-				try {
-					const r2obj = await bucket.get(obj.key);
-					if (!r2obj) continue;
+		for (const obj of listed.objects) {
+			try {
+				const r2obj = await bucket.get(obj.key);
+				if (!r2obj) continue;
 
-					const raw = await r2obj.text();
-					const parsed = parseFrontmatter(raw);
-					const links = extractLinks(parsed.body);
+				const raw = await r2obj.text();
+				const parsed = parseFrontmatter(raw);
+				const links = extractLinks(parsed.body);
 
-					// Derive path from R2 key: remove "{workspaceId}/notes/" prefix and ".md" suffix
-					const path = obj.key
-						.replace(`${workspaceId}/notes/`, "")
-						.replace(/\.md$/, "");
+				const path = obj.key
+					.replace(`${workspaceId}/notes/`, "")
+					.replace(/\.md$/, "");
 
-					const metadata: NoteMetadata = {
-						title: parsed.frontmatter.title || path,
-						type: parsed.frontmatter.type || "",
-						tags: parsed.frontmatter.tags || [],
-						aliases: parsed.frontmatter.aliases || [],
-						links: links.map((l) => ({ target: l.target, context: l.context })),
-						created: parsed.frontmatter.created || "",
-						modified: parsed.frontmatter.modified || "",
-					};
+				const metadata: NoteMetadata = {
+					title: parsed.frontmatter.title || path,
+					type: parsed.frontmatter.type || "",
+					tags: parsed.frontmatter.tags || [],
+					aliases: parsed.frontmatter.aliases || [],
+					links: links.map((l) => ({ target: l.target, context: l.context })),
+					created: parsed.frontmatter.created || "",
+					modified: parsed.frontmatter.modified || "",
+				};
 
-					await this.noteUpdated(path, metadata);
-					notesIndexed++;
-				} catch (err) {
-					console.error(`rebuildIndex: failed to index ${obj.key}:`, err);
-				}
+				await this.noteUpdated(path, metadata);
+				indexed++;
+			} catch (err) {
+				console.error(`rebuildIndex: failed to index ${obj.key}:`, err);
+				errors++;
 			}
+		}
 
-			cursor = listed.truncated ? listed.cursor : undefined;
-		} while (cursor);
+		// Save progress
+		await this.ctx.storage.put("rebuild_indexed", indexed);
+		await this.ctx.storage.put("rebuild_errors", errors);
 
-		return { notes_indexed: notesIndexed };
+		if (listed.truncated && listed.cursor) {
+			// More notes to process — save cursor and schedule next batch
+			await this.ctx.storage.put("rebuild_cursor", listed.cursor);
+			await this.ctx.storage.setAlarm(Date.now() + 10);
+		} else {
+			// Done
+			await this.ctx.storage.put("rebuild_status", "complete");
+			await this.ctx.storage.delete("rebuild_cursor");
+			await this.ctx.storage.delete("rebuild_workspace_id");
+			console.log(`rebuildIndex complete: ${indexed} notes indexed, ${errors} errors`);
+		}
 	}
 }
 
