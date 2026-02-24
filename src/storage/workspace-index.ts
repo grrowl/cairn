@@ -102,24 +102,26 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		return { status: "ok", timestamp: new Date().toISOString() };
 	}
 
-	async noteUpdated(path: string, metadata: NoteMetadata): Promise<{ conflicts?: string[] }> {
-		// Check alias conflicts BEFORE any mutations
-		const conflicts: string[] = [];
-		for (const alias of metadata.aliases || []) {
-			const normalised = alias.toLowerCase().trim();
-			if (!normalised) continue;
-			const existing = [...this.sql.exec<{ canonical_path: string }>(
-				"SELECT canonical_path FROM aliases WHERE alias = ?",
-				normalised,
-			)];
-			if (existing.length > 0 && existing[0].canonical_path !== path) {
-				conflicts.push(
-					`alias '${alias}' is already claimed by '${existing[0].canonical_path}'`,
-				);
+	async noteUpdated(path: string, metadata: NoteMetadata, force = false): Promise<{ conflicts?: string[] }> {
+		// Check alias conflicts BEFORE any mutations (skip during rebuild)
+		if (!force) {
+			const conflicts: string[] = [];
+			for (const alias of metadata.aliases || []) {
+				const normalised = alias.toLowerCase().trim();
+				if (!normalised) continue;
+				const existing = [...this.sql.exec<{ canonical_path: string }>(
+					"SELECT canonical_path FROM aliases WHERE alias = ?",
+					normalised,
+				)];
+				if (existing.length > 0 && existing[0].canonical_path !== path) {
+					conflicts.push(
+						`alias '${alias}' is already claimed by '${existing[0].canonical_path}'`,
+					);
+				}
 			}
-		}
-		if (conflicts.length > 0) {
-			return { conflicts };
+			if (conflicts.length > 0) {
+				return { conflicts };
+			}
 		}
 
 		// Get existing created timestamp if note already exists
@@ -463,7 +465,7 @@ export class WorkspaceIndex extends DurableObject<Env> {
 						modified: parsed.frontmatter.modified || "",
 					};
 
-					await this.noteUpdated(path, metadata);
+					await this.noteUpdated(path, metadata, true);
 					notesIndexed++;
 				} catch (err) {
 					console.error(`rebuildIndex: failed to index ${obj.key}:`, err);
