@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { WorkspaceIndex } from "../../storage/workspace-index";
 
 export const listSchema = {
 	path_prefix: z.string().optional().describe("Path prefix to list. Default: root (all notes)."),
@@ -11,7 +12,7 @@ export const listSchema = {
 
 export function registerListTool(
 	server: McpServer,
-	getIndex: () => DurableObjectStub,
+	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
 	server.tool(
 		"cairn_list",
@@ -19,7 +20,7 @@ export function registerListTool(
 		listSchema,
 		async ({ path_prefix, recursive, sort, limit, cursor }) => {
 			const index = getIndex();
-			const result = await (index as any).listNotes({
+			const result = await index.listNotes({
 				pathPrefix: path_prefix,
 				recursive: recursive ?? false,
 				sort: sort || "modified",

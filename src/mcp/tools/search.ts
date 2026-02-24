@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { WorkspaceIndex } from "../../storage/workspace-index";
+import { readNote } from "../../storage/notes";
 
 export const searchSchema = {
 	query: z.string().optional().describe("Full-text search query"),
@@ -11,9 +13,33 @@ export const searchSchema = {
 	cursor: z.string().optional().describe("Pagination cursor from previous response"),
 };
 
+/** Extract a snippet around the first occurrence of any query term in the body. */
+function extractSnippet(body: string, query: string | undefined, maxLen = 120): string | undefined {
+	if (!query || !body) return undefined;
+	const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length >= 2);
+	if (terms.length === 0) return undefined;
+
+	const lower = body.toLowerCase();
+	let bestIdx = -1;
+	for (const term of terms) {
+		const idx = lower.indexOf(term);
+		if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) {
+			bestIdx = idx;
+		}
+	}
+	if (bestIdx === -1) return undefined;
+
+	const start = Math.max(0, bestIdx - 40);
+	const end = Math.min(body.length, bestIdx + maxLen - 40);
+	const raw = body.slice(start, end).replace(/\n+/g, " ").trim();
+	return (start > 0 ? "..." : "") + raw + (end < body.length ? "..." : "");
+}
+
 export function registerSearchTool(
 	server: McpServer,
-	getIndex: () => DurableObjectStub,
+	getIndex: () => DurableObjectStub<WorkspaceIndex>,
+	getBucket: () => R2Bucket,
+	getWorkspaceId: () => string,
 ) {
 	server.tool(
 		"cairn_search",
@@ -29,7 +55,7 @@ export function registerSearchTool(
 			}
 
 			const index = getIndex();
-			const result = await (index as any).search({
+			const result = await index.search({
 				query,
 				tags,
 				pathPrefix: path_prefix,
@@ -39,12 +65,29 @@ export function registerSearchTool(
 				cursor,
 			});
 
+			// Enrich results with snippets from R2 (only when there's a text query)
+			const bucket = getBucket();
+			const workspaceId = getWorkspaceId();
+			const enriched = await Promise.all(
+				result.results.map(async (r) => {
+					if (!query) return r;
+					try {
+						const note = await readNote(bucket, workspaceId, r.path);
+						if (note) {
+							const snippet = extractSnippet(note.body, query);
+							if (snippet) return { ...r, snippet };
+						}
+					} catch {}
+					return r;
+				}),
+			);
+
 			return {
 				content: [
 					{
 						type: "text" as const,
 						text: JSON.stringify({
-							results: result.results,
+							results: enriched,
 							total: result.total,
 							cursor: result.cursor,
 						}),

@@ -13,6 +13,7 @@ import { registerSearchTool } from "./mcp/tools/search";
 import { registerLinksTool } from "./mcp/tools/links";
 import { workspaceRoutes } from "./workspaces/routes";
 import { getWorkspaceMetadata, checkMembership } from "./workspaces/membership";
+import type { WorkspaceIndex } from "./storage/workspace-index";
 
 export { WorkspaceIndex } from "./storage/workspace-index";
 
@@ -22,7 +23,7 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		version: "0.1.0",
 	});
 
-	private getWorkspaceIndex(): DurableObjectStub {
+	private getWorkspaceIndex(): DurableObjectStub<WorkspaceIndex> {
 		const workspaceId = this.props?.workspaceId || "default";
 		const id = this.env.WORKSPACE_INDEX.idFromName(workspaceId);
 		return this.env.WORKSPACE_INDEX.get(id);
@@ -32,22 +33,18 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		const getBucket = () => this.env.BUCKET;
 		const getWorkspaceId = () => this.props?.workspaceId || "default";
 		const getIndex = () => this.getWorkspaceIndex();
-		// Timezone cached per workspace (loaded lazily from R2 workspace metadata)
-		let cachedTimezone: string | null = null;
-		const getTimezone = () => {
-			if (cachedTimezone) return cachedTimezone;
-			// Default until workspace metadata is loaded
-			return "Australia/Melbourne";
-		};
-		// Load timezone from workspace metadata asynchronously
+		// Timezone: load from workspace metadata, fallback to UTC
+		let cachedTimezone = "Australia/Melbourne";
 		const workspaceId = getWorkspaceId();
 		if (workspaceId !== "default") {
-			getWorkspaceMetadata(this.env.BUCKET, workspaceId).then((ws) => {
+			try {
+				const ws = await getWorkspaceMetadata(this.env.BUCKET, workspaceId);
 				if (ws?.settings?.timezone) {
 					cachedTimezone = ws.settings.timezone;
 				}
-			}).catch(() => {});
+			} catch {}
 		}
+		const getTimezone = () => cachedTimezone;
 
 		// Register all 8 MCP tools + ping
 		registerReadTool(this.server, getBucket, getWorkspaceId, getIndex);
@@ -56,7 +53,7 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		registerDailyTool(this.server, getBucket, getWorkspaceId, getIndex, getTimezone);
 		registerPatchTool(this.server, getBucket, getWorkspaceId, getIndex);
 		registerDeleteTool(this.server, getBucket, getWorkspaceId, getIndex);
-		registerSearchTool(this.server, getIndex);
+		registerSearchTool(this.server, getIndex, getBucket, getWorkspaceId);
 		registerLinksTool(this.server, getIndex);
 
 		this.server.tool("cairn_ping", "Check that the Cairn MCP server is running", {}, async () => ({

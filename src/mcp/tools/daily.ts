@@ -2,7 +2,7 @@ import { z } from "zod";
 import { readNote, writeNote, patchNote, PatchError } from "../../storage/notes";
 import { serialiseFrontmatter } from "../../storage/frontmatter";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { NoteMetadata } from "../../storage/workspace-index";
+import type { NoteMetadata, WorkspaceIndex } from "../../storage/workspace-index";
 
 export const dailySchema = {
 	date: z.string().optional().describe("ISO date e.g. '2026-02-24'. Defaults to today in workspace timezone."),
@@ -26,7 +26,7 @@ export function registerDailyTool(
 	server: McpServer,
 	getBucket: () => R2Bucket,
 	getWorkspaceId: () => string,
-	getIndex: () => DurableObjectStub,
+	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 	getTimezone: () => string,
 ) {
 	server.tool(
@@ -66,7 +66,7 @@ export function registerDailyTool(
 					created: now,
 					modified: now,
 				};
-				await (index as any).noteUpdated(path, metadata);
+				await index.noteUpdated(path, metadata);
 
 				if (op === "read") {
 					return {
@@ -86,8 +86,8 @@ export function registerDailyTool(
 
 				// Get backlinks
 				const index = getIndex();
-				const linkResult = await (index as any).getLinks(path, 1, "in");
-				const backlinks = linkResult.incoming.map((l: any) => l.path);
+				const linkResult = await index.getLinks(path, 1, "in");
+				const backlinks = linkResult.incoming.map((l) => l.path);
 				const outputFm = { ...note.frontmatter, backlinks };
 				const output = serialiseFrontmatter(outputFm, note.body);
 
@@ -125,7 +125,7 @@ export function registerDailyTool(
 					created: result.frontmatter.created || new Date().toISOString(),
 					modified: result.frontmatter.modified || new Date().toISOString(),
 				};
-				await (index as any).noteUpdated(path, metadata);
+				await index.noteUpdated(path, metadata);
 
 				return {
 					content: [

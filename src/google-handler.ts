@@ -110,7 +110,6 @@ async function redirectToGoogle(
 			...headers,
 			location: getUpstreamAuthorizeUrl({
 				clientId: env.GOOGLE_CLIENT_ID,
-				hostedDomain: env.HOSTED_DOMAIN,
 				redirectUri: new URL("/callback", request.url).href,
 				scope: "email profile",
 				state: stateToken,

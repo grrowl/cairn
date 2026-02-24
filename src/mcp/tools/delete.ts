@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { deleteNote } from "../../storage/notes";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { WorkspaceIndex } from "../../storage/workspace-index";
 
 export const deleteSchema = {
 	path: z.string().describe("Note path to delete"),
@@ -10,7 +11,7 @@ export function registerDeleteTool(
 	server: McpServer,
 	getBucket: () => R2Bucket,
 	getWorkspaceId: () => string,
-	getIndex: () => DurableObjectStub,
+	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
 	server.tool(
 		"cairn_delete",
@@ -30,7 +31,7 @@ export function registerDeleteTool(
 
 			// Remove from index
 			const index = getIndex();
-			await (index as any).noteDeleted(path);
+			await index.noteDeleted(path);
 
 			return {
 				content: [

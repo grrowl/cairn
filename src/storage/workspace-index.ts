@@ -102,7 +102,9 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		return { status: "ok", timestamp: new Date().toISOString() };
 	}
 
-	async noteUpdated(path: string, metadata: NoteMetadata): Promise<void> {
+	async noteUpdated(path: string, metadata: NoteMetadata): Promise<{ warnings?: string[] }> {
+		const warnings: string[] = [];
+
 		// Get existing created timestamp if note already exists
 		const existingRows = [...this.sql.exec<{ created: string }>(
 			"SELECT created FROM notes WHERE path = ?",
@@ -144,6 +146,16 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		for (const alias of metadata.aliases || []) {
 			const normalised = alias.toLowerCase().trim();
 			if (normalised) {
+				// Check for conflict: another note already claims this alias
+				const existing = [...this.sql.exec<{ canonical_path: string }>(
+					"SELECT canonical_path FROM aliases WHERE alias = ?",
+					normalised,
+				)];
+				if (existing.length > 0 && existing[0].canonical_path !== path) {
+					warnings.push(
+						`alias '${alias}' reassigned from '${existing[0].canonical_path}' to '${path}'`,
+					);
+				}
 				this.sql.exec(
 					"INSERT OR REPLACE INTO aliases (alias, canonical_path) VALUES (?, ?)",
 					normalised,
@@ -165,6 +177,8 @@ export class WorkspaceIndex extends DurableObject<Env> {
 				link.context || "",
 			);
 		}
+
+		return warnings.length > 0 ? { warnings } : {};
 	}
 
 	async noteDeleted(path: string): Promise<void> {

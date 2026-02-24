@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { WorkspaceIndex } from "../../storage/workspace-index";
 
 export const linksSchema = {
 	path: z.string().describe("Note path"),
@@ -9,7 +10,7 @@ export const linksSchema = {
 
 export function registerLinksTool(
 	server: McpServer,
-	getIndex: () => DurableObjectStub,
+	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
 	server.tool(
 		"cairn_links",
@@ -17,7 +18,7 @@ export function registerLinksTool(
 		linksSchema,
 		async ({ path, depth, direction }) => {
 			const index = getIndex();
-			const result = await (index as any).getLinks(
+			const result = await index.getLinks(
 				path,
 				depth || 1,
 				direction || "both",

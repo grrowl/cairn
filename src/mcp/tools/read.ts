@@ -3,6 +3,7 @@ import { readNote } from "../../storage/notes";
 import { extractSection } from "../../storage/markdown";
 import { serialiseFrontmatter } from "../../storage/frontmatter";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { WorkspaceIndex } from "../../storage/workspace-index";
 
 export const readSchema = {
 	path: z.string().describe("Note path e.g. 'entities/person/jamie' or 'daily/2026-02-24'"),
@@ -14,7 +15,7 @@ export function registerReadTool(
 	server: McpServer,
 	getBucket: () => R2Bucket,
 	getWorkspaceId: () => string,
-	getIndex: () => DurableObjectStub,
+	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
 	server.tool(
 		"cairn_read",
@@ -35,8 +36,8 @@ export function registerReadTool(
 			if (metadata_only) {
 				// Get backlinks from index
 				const index = getIndex();
-				const linkResult = await (index as any).getLinks(path, 1, "in");
-				const backlinks = linkResult.incoming.map((l: any) => l.path);
+				const linkResult = await index.getLinks(path, 1, "in");
+				const backlinks = linkResult.incoming.map((l) => l.path);
 
 				const metaOutput = {
 					...note.frontmatter,
@@ -62,8 +63,8 @@ export function registerReadTool(
 
 			// Get backlinks for display in frontmatter
 			const index = getIndex();
-			const linkResult = await (index as any).getLinks(path, 1, "in");
-			const backlinks = linkResult.incoming.map((l: any) => l.path);
+			const linkResult = await index.getLinks(path, 1, "in");
+			const backlinks = linkResult.incoming.map((l) => l.path);
 
 			const outputFm = { ...note.frontmatter, backlinks };
 			const output = serialiseFrontmatter(outputFm, body);

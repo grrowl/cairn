@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { writeNote } from "../../storage/notes";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { NoteMetadata } from "../../storage/workspace-index";
+import type { NoteMetadata, WorkspaceIndex } from "../../storage/workspace-index";
 
 export const writeSchema = {
 	path: z.string().describe("Note path e.g. 'entities/person/jamie'"),
@@ -14,7 +14,7 @@ export function registerWriteTool(
 	server: McpServer,
 	getBucket: () => R2Bucket,
 	getWorkspaceId: () => string,
-	getIndex: () => DurableObjectStub,
+	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
 	server.tool(
 		"cairn_write",
@@ -37,7 +37,7 @@ export function registerWriteTool(
 				created: result.frontmatter.created || new Date().toISOString(),
 				modified: result.frontmatter.modified || new Date().toISOString(),
 			};
-			await (index as any).noteUpdated(path, metadata);
+			await index.noteUpdated(path, metadata);
 
 			return {
 				content: [
