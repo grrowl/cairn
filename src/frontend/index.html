@@ -68,7 +68,6 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
   let userEmail = null;
   let userName = null;
 
-  const CLIENT_ID = 'cairn-admin';
   const $ = (id) => document.getElementById(id);
   const app = () => $('app');
   const headerRight = () => $('header-right');
@@ -159,10 +158,32 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
     `;
   }
 
-  window.__startLogin = function() {
-    const redirectUri = window.location.origin + '/';
-    const authUrl = `/authorize?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=openid+email+profile`;
-    window.location.href = authUrl;
+  async function getOrRegisterClientId() {
+    const stored = localStorage.getItem('cairn_client_id');
+    if (stored) return stored;
+    const res = await fetch('/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_name: 'cairn-admin',
+        redirect_uris: [window.location.origin + '/'],
+        token_endpoint_auth_method: 'none',
+      }),
+    });
+    if (!res.ok) throw new Error('Client registration failed');
+    const data = await res.json();
+    localStorage.setItem('cairn_client_id', data.client_id);
+    return data.client_id;
+  }
+
+  window.__startLogin = async function() {
+    try {
+      const clientId = await getOrRegisterClientId();
+      const redirectUri = window.location.origin + '/';
+      window.location.href = `/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=openid+email+profile`;
+    } catch (e) {
+      app().innerHTML = `<div class="error">Login failed: ${escHtml(e.message)}</div>`;
+    }
   };
 
   window.__logout = function() {

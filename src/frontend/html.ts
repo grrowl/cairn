@@ -136,9 +136,29 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); margin-right: 0.75rem;
     app().innerHTML = '<div style="text-align:center;padding:3rem 0"><h2 style="margin-bottom:1rem">Welcome to Cairn</h2><p style="color:var(--fg2);margin-bottom:2rem">A markdown-first knowledge base with MCP interface</p><button class="btn" onclick="window.__startLogin()" style="padding:0.75rem 2rem;font-size:1rem">Sign in with Google</button></div>';
   }
 
+  function getOrRegisterClientId() {
+    var stored = localStorage.getItem('cairn_client_id');
+    if (stored) return Promise.resolve(stored);
+    return fetch('/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_name: 'cairn-admin', redirect_uris: [window.location.origin + '/'], token_endpoint_auth_method: 'none' }),
+    }).then(function(res) {
+      if (!res.ok) throw new Error('Client registration failed');
+      return res.json();
+    }).then(function(data) {
+      localStorage.setItem('cairn_client_id', data.client_id);
+      return data.client_id;
+    });
+  }
+
   window.__startLogin = function() {
-    var redirectUri = window.location.origin + '/';
-    window.location.href = '/authorize?response_type=code&client_id=cairn-admin&redirect_uri=' + encodeURIComponent(redirectUri) + '&scope=openid+email+profile';
+    getOrRegisterClientId().then(function(clientId) {
+      var redirectUri = window.location.origin + '/';
+      window.location.href = '/authorize?response_type=code&client_id=' + encodeURIComponent(clientId) + '&redirect_uri=' + encodeURIComponent(redirectUri) + '&scope=openid+email+profile';
+    }).catch(function(e) {
+      app().innerHTML = '<div class="error">Login failed: ' + escHtml(e.message) + '</div>';
+    });
   };
 
   window.__logout = function() { setToken(null); userEmail = null; navigate('#/login'); };
