@@ -24,6 +24,18 @@ Shared, structured, back-linked markdown notes — accessible to all your AI age
 }
 ```
 
+**Want to try it first?** Use the `default` workspace — it's a shared sandbox open to any authenticated user, no invite needed:
+
+```json
+{
+  "mcpServers": {
+    "cairn": {
+      "url": "https://cairn.place/mcp"
+    }
+  }
+}
+```
+
 ## MCP Tools
 
 A minimal, focused interface — 8 tools that cover everything an agent needs:
