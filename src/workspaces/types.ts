@@ -5,7 +5,6 @@ export interface WorkspaceMember {
 }
 
 export interface WorkspaceSettings {
-	entity_types: string[];
 	timezone: string;
 }
 
@@ -26,7 +25,6 @@ export interface UserRecord {
 }
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
-	entity_types: ["person", "company", "project", "topic"],
 	timezone: "Australia/Melbourne",
 };
 

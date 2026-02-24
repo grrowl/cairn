@@ -229,8 +229,7 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); margin-right: 0.75rem;
       // Settings tab
       html += '<div id="tab-settings">';
       html += '<div class="card"><div class="form-group"><label>Workspace Name</label><div class="form-row"><input id="ws-name" value="' + escAttr(ws.name) + '"><button class="btn" onclick="window.__updateWorkspace(\\'' + ws.id + '\\')">Save</button></div></div>';
-      html += '<div class="form-group"><label>Timezone</label><div class="form-row"><input id="ws-timezone" value="' + escAttr(ws.settings.timezone) + '"><button class="btn" onclick="window.__updateTimezone(\\'' + ws.id + '\\')">Save</button></div></div>';
-      html += '<div class="form-group"><label>Entity Types</label><div class="form-row"><input id="ws-entity-types" value="' + escAttr(ws.settings.entity_types.join(', ')) + '"><button class="btn" onclick="window.__updateEntityTypes(\\'' + ws.id + '\\')">Save</button></div></div></div>';
+      html += '<div class="form-group"><label>Timezone</label><div class="form-row"><input id="ws-timezone" value="' + escAttr(ws.settings.timezone) + '"><button class="btn" onclick="window.__updateTimezone(\\'' + ws.id + '\\')">Save</button></div></div></div>';
       html += '<div class="card"><h3>Admin Actions</h3><div style="display:flex;gap:0.5rem;margin-top:0.5rem"><button class="btn-outline" onclick="window.__rebuildIndex(\\'' + ws.id + '\\')">Rebuild Index</button><button class="btn-danger" onclick="window.__deleteWorkspace(\\'' + ws.id + '\\')">Delete Workspace</button></div><div id="admin-msg" style="margin-top:0.5rem"></div></div>';
       html += '</div>';
 
@@ -262,11 +261,6 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); margin-right: 0.75rem;
 
   window.__updateTimezone = function(id) {
     api('/api/workspaces/' + id, { method: 'PUT', body: JSON.stringify({ settings: { timezone: $('ws-timezone').value } }) }).then(function() { renderWorkspaceSettings(id); }).catch(function(e) { $('settings-error').innerHTML = '<div class="error">' + escHtml(e.message) + '</div>'; });
-  };
-
-  window.__updateEntityTypes = function(id) {
-    var types = $('ws-entity-types').value.split(',').map(function(t) { return t.trim(); }).filter(Boolean);
-    api('/api/workspaces/' + id, { method: 'PUT', body: JSON.stringify({ settings: { entity_types: types } }) }).then(function() { renderWorkspaceSettings(id); }).catch(function(e) { $('settings-error').innerHTML = '<div class="error">' + escHtml(e.message) + '</div>'; });
   };
 
   window.__inviteMember = function(wsId) {

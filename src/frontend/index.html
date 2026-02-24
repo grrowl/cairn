@@ -303,13 +303,6 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
               <button class="btn" onclick="window.__updateTimezone('${ws.id}')">Save</button>
             </div>
           </div>
-          <div class="form-group">
-            <label>Entity Types</label>
-            <div class="form-row">
-              <input id="ws-entity-types" value="${escAttr(ws.settings.entity_types.join(', '))}">
-              <button class="btn" onclick="window.__updateEntityTypes('${ws.id}')">Save</button>
-            </div>
-          </div>
         </div>
         <div class="card">
           <h3>Admin Actions</h3>
@@ -383,14 +376,6 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
   window.__updateTimezone = async function(id) {
     try {
       await api(`/api/workspaces/${id}`, { method: 'PUT', body: JSON.stringify({ settings: { timezone: $('ws-timezone').value } }) });
-      renderWorkspaceSettings(id);
-    } catch (e) { $('settings-error').innerHTML = `<div class="error">${escHtml(e.message)}</div>`; }
-  };
-
-  window.__updateEntityTypes = async function(id) {
-    try {
-      const types = $('ws-entity-types').value.split(',').map(t => t.trim()).filter(Boolean);
-      await api(`/api/workspaces/${id}`, { method: 'PUT', body: JSON.stringify({ settings: { entity_types: types } }) });
       renderWorkspaceSettings(id);
     } catch (e) { $('settings-error').innerHTML = `<div class="error">${escHtml(e.message)}</div>`; }
   };

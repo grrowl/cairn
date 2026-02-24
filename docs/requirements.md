@@ -56,7 +56,6 @@ Stored in R2 at `_system/workspaces/{workspaceId}.json`:
     { "email": "jamie@example.com", "role": "member", "added_at": "..." }
   ],
   "settings": {
-    "entity_types": ["person", "company", "project", "topic"],
     "timezone": "Australia/Melbourne"
   }
 }
