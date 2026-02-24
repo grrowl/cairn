@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cairn": {
+      "type": "http",
+      "url": "https://cairn.place/cairn/mcp"
+    }
+  }
+}
