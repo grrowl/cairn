@@ -63,6 +63,7 @@ workspaceRoutes.get("/api/workspaces", async (c) => {
 		const ws = await getWorkspaceMetadata(bucket, id);
 		if (ws) workspaces.push(ws);
 	}
+	workspaces.sort((a, b) => b.created_at.localeCompare(a.created_at));
 
 	return c.json({ workspaces });
 });
