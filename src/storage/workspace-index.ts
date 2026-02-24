@@ -91,6 +91,10 @@ export class WorkspaceIndex extends DurableObject<Env> {
 				path TEXT NOT NULL,
 				PRIMARY KEY (term, path)
 			);
+			CREATE INDEX IF NOT EXISTS idx_search_terms_term ON search_terms(term);
+			CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_path);
+			CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_path);
+			CREATE INDEX IF NOT EXISTS idx_aliases_canonical ON aliases(canonical_path);
 		`);
 	}
 
@@ -120,9 +124,12 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		);
 
 		// Update search terms: delete old, insert new
+		// Include title, tags, aliases, path segments, and link contexts for broader search coverage
 		this.sql.exec("DELETE FROM search_terms WHERE path = ?", path);
+		const linkContexts = (metadata.links || []).map((l) => l.context).join(" ");
+		const pathTerms = path.replace(/[/_-]/g, " ");
 		const terms = new Set(tokenise(
-			`${metadata.title} ${(metadata.tags || []).join(" ")} ${(metadata.aliases || []).join(" ")}`,
+			`${metadata.title} ${(metadata.tags || []).join(" ")} ${(metadata.aliases || []).join(" ")} ${pathTerms} ${linkContexts}`,
 		));
 		for (const term of terms) {
 			this.sql.exec(
@@ -176,14 +183,17 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		const queryParams: (string | number)[] = [];
 
 		if (params.query) {
-			// Search using inverted index
+			// Search using inverted index with prefix matching
 			const searchTerms = tokenise(params.query);
 			if (searchTerms.length > 0) {
-				const placeholders = searchTerms.map(() => "?").join(",");
-				conditions.push(
-					`n.path IN (SELECT path FROM search_terms WHERE term IN (${placeholders}) GROUP BY path HAVING COUNT(DISTINCT term) = ?)`,
+				// Each term must match at least one search_term (prefix match via LIKE)
+				// All terms must match (INTERSECT)
+				const subqueries = searchTerms.map(
+					() => "SELECT path FROM search_terms WHERE term LIKE ?",
 				);
-				queryParams.push(...searchTerms, searchTerms.length);
+				const combined = subqueries.join(" INTERSECT ");
+				conditions.push(`n.path IN (${combined})`);
+				queryParams.push(...searchTerms.map((t) => `${t}%`));
 			}
 		}
 
