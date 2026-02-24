@@ -102,8 +102,25 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		return { status: "ok", timestamp: new Date().toISOString() };
 	}
 
-	async noteUpdated(path: string, metadata: NoteMetadata): Promise<{ warnings?: string[] }> {
-		const warnings: string[] = [];
+	async noteUpdated(path: string, metadata: NoteMetadata): Promise<{ conflicts?: string[] }> {
+		// Check alias conflicts BEFORE any mutations
+		const conflicts: string[] = [];
+		for (const alias of metadata.aliases || []) {
+			const normalised = alias.toLowerCase().trim();
+			if (!normalised) continue;
+			const existing = [...this.sql.exec<{ canonical_path: string }>(
+				"SELECT canonical_path FROM aliases WHERE alias = ?",
+				normalised,
+			)];
+			if (existing.length > 0 && existing[0].canonical_path !== path) {
+				conflicts.push(
+					`alias '${alias}' is already claimed by '${existing[0].canonical_path}'`,
+				);
+			}
+		}
+		if (conflicts.length > 0) {
+			return { conflicts };
+		}
 
 		// Get existing created timestamp if note already exists
 		const existingRows = [...this.sql.exec<{ created: string }>(
@@ -126,7 +143,6 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		);
 
 		// Update search terms: delete old, insert new
-		// Include title, tags, aliases, path segments, and link contexts for broader search coverage
 		this.sql.exec("DELETE FROM search_terms WHERE path = ?", path);
 		const linkContexts = (metadata.links || []).map((l) => l.context).join(" ");
 		const pathTerms = path.replace(/[/_-]/g, " ");
@@ -141,21 +157,11 @@ export class WorkspaceIndex extends DurableObject<Env> {
 			);
 		}
 
-		// Update aliases: delete old for this path, insert new
+		// Update aliases
 		this.sql.exec("DELETE FROM aliases WHERE canonical_path = ?", path);
 		for (const alias of metadata.aliases || []) {
 			const normalised = alias.toLowerCase().trim();
 			if (normalised) {
-				// Check for conflict: another note already claims this alias
-				const existing = [...this.sql.exec<{ canonical_path: string }>(
-					"SELECT canonical_path FROM aliases WHERE alias = ?",
-					normalised,
-				)];
-				if (existing.length > 0 && existing[0].canonical_path !== path) {
-					warnings.push(
-						`alias '${alias}' reassigned from '${existing[0].canonical_path}' to '${path}'`,
-					);
-				}
 				this.sql.exec(
 					"INSERT OR REPLACE INTO aliases (alias, canonical_path) VALUES (?, ?)",
 					normalised,
@@ -178,7 +184,7 @@ export class WorkspaceIndex extends DurableObject<Env> {
 			);
 		}
 
-		return warnings.length > 0 ? { warnings } : {};
+		return {};
 	}
 
 	async noteDeleted(path: string): Promise<void> {

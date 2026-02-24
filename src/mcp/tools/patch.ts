@@ -39,7 +39,13 @@ export function registerPatchTool(
 					created: result.frontmatter.created || new Date().toISOString(),
 					modified: result.frontmatter.modified || new Date().toISOString(),
 				};
-				await index.noteUpdated(path, metadata);
+				const indexResult = await index.noteUpdated(path, metadata);
+				if (indexResult.conflicts && indexResult.conflicts.length > 0) {
+					return {
+						content: [{ type: "text" as const, text: `alias_conflict: ${indexResult.conflicts.join("; ")}` }],
+						isError: true,
+					};
+				}
 
 				return {
 					content: [
