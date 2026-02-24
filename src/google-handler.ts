@@ -39,8 +39,8 @@ app.get("/authorize", async (c) => {
 		client: await c.env.OAUTH_PROVIDER.lookupClient(clientId),
 		csrfToken,
 		server: {
-			description: "This MCP Server is a demo for Google OAuth.",
-			name: "Google OAuth Demo",
+			description: "Cairn is a markdown-first knowledge base with an MCP interface.",
+			name: "Cairn",
 		},
 		setCookie,
 		state: { oauthReqInfo },
@@ -218,6 +218,13 @@ app.get("/callback", async (c) => {
 		status: 302,
 		headers,
 	});
+});
+
+// Serve the admin frontend SPA
+import { FRONTEND_HTML } from "./frontend/html";
+
+app.get("/", (c) => {
+	return c.html(FRONTEND_HTML);
 });
 
 export { app as GoogleHandler };
