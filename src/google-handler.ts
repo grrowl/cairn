@@ -105,12 +105,16 @@ async function redirectToGoogle(
 	stateToken: string,
 	headers: Record<string, string> = {},
 ) {
+	// Use BASE_URL if set (local dev), otherwise derive from request
+	const origin = env.BASE_URL || new URL(request.url).origin;
+	const authorizeRedirectUri = `${origin}/callback`;
+
 	return new Response(null, {
 		headers: {
 			...headers,
 			location: getUpstreamAuthorizeUrl({
 				clientId: env.GOOGLE_CLIENT_ID,
-				redirectUri: new URL("/callback", request.url).href,
+				redirectUri: authorizeRedirectUri,
 				scope: "email profile",
 				state: stateToken,
 				upstreamUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -164,12 +168,16 @@ app.get("/callback", async (c) => {
 		return c.text("Missing code", 400);
 	}
 
+	// Use BASE_URL if set (local dev), otherwise derive from request
+	const origin = c.env.BASE_URL || new URL(c.req.url).origin;
+	const callbackRedirectUri = `${origin}/callback`;
+
 	const [accessToken, googleErrResponse] = await fetchUpstreamAuthToken({
 		clientId: c.env.GOOGLE_CLIENT_ID,
 		clientSecret: c.env.GOOGLE_CLIENT_SECRET,
 		code,
 		grantType: "authorization_code",
-		redirectUri: new URL("/callback", c.req.url).href,
+		redirectUri: callbackRedirectUri,
 		upstreamUrl: "https://accounts.google.com/o/oauth2/token",
 	});
 	if (googleErrResponse) {
