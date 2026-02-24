@@ -1,146 +1,100 @@
 # Cairn
 
-Markdown-first knowledge base with MCP interface. Built for capturing meeting transcripts, building entity graphs, and maintaining structured notes — all through natural LLM interactions.
+**Persistent, Obsidian-like memory for your AI assistants.**
 
-**Stack:** Cloudflare Workers, R2, Durable Objects (SQLite), Google OAuth, MCP (Model Context Protocol)
+Shared, structured, back-linked markdown notes — accessible to all your AI agents via [MCP](https://modelcontextprotocol.io). WikiLinks, backlinks, daily notes, full-text search, and a sensible minimal tool interface designed to be a shared knowledge vault across Claude, Cursor, and any MCP client.
 
-## Setup
+**Try it now at [cairn.place](https://cairn.place)**
 
-### Prerequisites
+<!-- screenshot or demo gif here -->
 
-- Node.js 18+
-- A Google Cloud OAuth client (for authentication)
-- Cloudflare account (for deployment)
+## How it works
 
-### Local Development
+1. **Sign in** at [cairn.place](https://cairn.place) and create a workspace
+2. **Connect your agents** — add the MCP endpoint to Claude Desktop, Cursor, Claude Code, or any MCP client
+3. **Your agents share a brain** — notes, entities, meeting logs, and project context persist across conversations and tools
 
-```bash
-# Install dependencies
-npm install
-
-# Create .dev.vars from the example
-cp .dev.vars.example .dev.vars
-# Edit .dev.vars with your Google OAuth credentials:
-#   GOOGLE_CLIENT_ID=your-client-id
-#   GOOGLE_CLIENT_SECRET=your-client-secret
-#   COOKIE_ENCRYPTION_KEY=generate-with-openssl-rand-hex-32
-#   ADMIN_EMAIL=your@email.com
-
-# Start local dev server
-npm run dev
+```json
+{
+  "mcpServers": {
+    "cairn": {
+      "url": "https://cairn.place/<workspace-id>/mcp"
+    }
+  }
+}
 ```
 
-The dev server runs at `http://localhost:8788` with local R2, KV, and Durable Object emulation.
+## MCP Tools
 
-### Deployment
+A minimal, focused interface — 8 tools that cover everything an agent needs:
+
+| Tool | Description |
+|------|-------------|
+| `cairn_read` | Read a note, a specific section, or just metadata |
+| `cairn_write` | Create or overwrite a note with frontmatter, tags, and aliases |
+| `cairn_list` | List notes with path prefix filtering, sorting, and pagination |
+| `cairn_search` | Full-text + tag + backlink search with snippets |
+| `cairn_daily` | Read or append to today's daily note (auto-created) |
+| `cairn_patch` | Append, prepend, or find-and-replace within an existing note |
+| `cairn_delete` | Delete a note and clean up its index entries |
+| `cairn_links` | Traverse the backlink graph around a note |
+
+Notes are markdown with YAML frontmatter. WikiLinks (`[[target]]`) are automatically indexed for backlink traversal and alias resolution.
+
+See [MCP Spec](./docs/mcp-spec.md) for full tool schemas.
+
+## Features
+
+- **WikiLinks & backlinks** — `[[link]]` syntax with automatic graph indexing and alias resolution
+- **Daily notes** — timezone-aware daily journal with append/prepend operations
+- **Full-text search** — inverted index with prefix matching, tag filtering, and backlink queries
+- **Workspaces** — isolated vaults with member management and role-based access
+- **Admin UI** — browse your vault, view files with syntax-highlighted markdown, manage members and settings
+
+## Self-hosting
+
+Cairn runs on Cloudflare Workers with R2, KV, and Durable Objects. See the [Architecture docs](./docs/architecture.md) for details.
 
 ```bash
-# Create R2 bucket
+npm install
+cp .dev.vars.example .dev.vars  # add Google OAuth credentials
+npm run dev                      # http://localhost:8788
+```
+
+See [deployment instructions](#deployment) for production setup.
+
+## Architecture
+
+- **R2** — note content (markdown + YAML frontmatter) and workspace metadata
+- **Durable Objects (SQLite)** — backlinks, search terms, aliases, note metadata indexes
+- **MCP (McpAgent)** — reads/writes R2 directly, sends lightweight metadata to indexes
+- **Google OAuth** — authentication for both MCP clients and the browser UI
+
+## Deployment
+
+```bash
 npx wrangler r2 bucket create cairn-storage
-
-# Create KV namespace for OAuth token storage
 npx wrangler kv namespace create cairn-oauth-kv
-# Update wrangler.jsonc with the returned KV namespace ID
+# Update wrangler.jsonc with the KV namespace ID
 
-# Set secrets
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put COOKIE_ENCRYPTION_KEY
 npx wrangler secret put ADMIN_EMAIL
 
-# Deploy
 npx wrangler deploy
 ```
 
 Google Cloud OAuth client config:
-- Authorized redirect URI: `https://cairn.<your-subdomain>.workers.dev/callback`
+- Authorized redirect URI: `https://your-domain/callback`
 - Scopes: `openid email profile`
-
-## MCP Client Configuration
-
-### Claude Desktop
-
-Add to your Claude Desktop MCP config:
-
-```json
-{
-  "mcpServers": {
-    "cairn": {
-      "url": "https://cairn.<your-subdomain>.workers.dev/<workspace-id>/mcp"
-    }
-  }
-}
-```
-
-### Cursor
-
-Add to your Cursor MCP settings:
-
-```json
-{
-  "mcpServers": {
-    "cairn": {
-      "url": "https://cairn.<your-subdomain>.workers.dev/<workspace-id>/mcp"
-    }
-  }
-}
-```
-
-Replace `<workspace-id>` with your workspace slug (e.g. `bright_falcon`).
-
-## MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `cairn_read` | Read a note's content, optionally just a section or metadata |
-| `cairn_write` | Create or overwrite a note (upsert) |
-| `cairn_patch` | Append, prepend, or replace within a note |
-| `cairn_delete` | Delete a note and its index entries |
-| `cairn_search` | Full-text + metadata search with snippets |
-| `cairn_links` | Get backlink graph around a note |
-| `cairn_daily` | Daily note operations with auto-creation |
-| `cairn_list` | List notes with path prefix filtering and pagination |
-
-See [MCP Spec](./docs/mcp-spec.md) for full tool schemas and examples.
-
-## Admin Frontend
-
-Visit `https://cairn.<your-subdomain>.workers.dev/` to access the admin UI:
-- Sign in with Google
-- Create and manage workspaces
-- Invite members by email
-- Configure workspace settings (timezone, entity types)
-- Rebuild search indexes
-
-## Architecture
-
-- **R2** stores note content (markdown + YAML frontmatter) and workspace metadata
-- **WorkspaceIndex DO** (Durable Object with SQLite) maintains all indexes: backlinks, search terms, aliases, note metadata
-- **CairnMCP** (McpAgent) handles MCP tool calls, reads/writes R2 directly, sends lightweight metadata to WorkspaceIndex
-- **workers-oauth-provider** handles Google OAuth for both MCP clients and browser frontend
-
-## API Routes
-
-```
-GET  /                                  # Admin frontend SPA
-POST /:workspaceId/mcp                  # MCP endpoint (streamable HTTP)
-
-GET  /api/workspaces                    # List user's workspaces
-POST /api/workspaces                    # Create workspace
-GET  /api/workspaces/:id                # Workspace details
-PUT  /api/workspaces/:id                # Update workspace settings
-DELETE /api/workspaces/:id              # Delete workspace (admin only)
-
-GET  /api/workspaces/:id/members        # List members
-POST /api/workspaces/:id/members        # Invite member
-DELETE /api/workspaces/:id/members/:email  # Remove member
-
-POST /api/workspaces/:id/rebuild-index  # Rebuild WorkspaceIndex
-```
 
 ## Documentation
 
 - [Requirements](./docs/requirements.md) — what we're building and why
 - [Architecture](./docs/architecture.md) — system design and component details
 - [MCP Spec](./docs/mcp-spec.md) — tool definitions and schemas
-- [Implementation Plan](./docs/implementation-plan.md) — sequenced build plan
+
+---
+
+Built by [@grrowl](https://github.com/grrowl) ([tommckenzie.dev](https://tommckenzie.dev))

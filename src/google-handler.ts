@@ -39,7 +39,7 @@ app.get("/authorize", async (c) => {
 		client: await c.env.OAUTH_PROVIDER.lookupClient(clientId),
 		csrfToken,
 		server: {
-			description: "Cairn is a markdown-first knowledge base with an MCP interface.",
+			description: "Persistent, Obsidian-like memory for your AI assistants.",
 			name: "Cairn",
 		},
 		setCookie,

@@ -1,6 +1,7 @@
 {
 	"name": "cairn",
-	"version": "0.0.1",
+	"version": "0.1.0",
+	"description": "Persistent, Obsidian-like memory for your AI assistants. Shared knowledge vault via MCP.",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
