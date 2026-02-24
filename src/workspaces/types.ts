@@ -36,6 +36,7 @@ export const RESERVED_SLUGS = new Set([
 	"api",
 	"mcp",
 	"auth",
+	"default",
 	".well-known",
 	"_system",
 ]);
