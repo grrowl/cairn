@@ -113,7 +113,7 @@ export const SCRIPT = `
     app().innerHTML = \`
       <div style="text-align:center;padding:4rem 0">
         <h2 style="margin-bottom:1rem;font-size:2rem;font-weight:700">Welcome to cairn</h2>
-        <p style="color:var(--fg-dim);margin-bottom:2.5rem;font-size:1.1rem">Obsidian-like memory vault for your AI assistants</p>
+        <p style="color:var(--fg-dim);margin-bottom:2.5rem;font-size:1.1rem">Obsidian-like memory vault for your agents</p>
         <button class="btn" onclick="window.__startLogin()" style="padding:0.75rem 2.5rem;font-size:1.1rem;margin-bottom:4rem">
           Sign in with Google
         </button>
@@ -126,7 +126,7 @@ export const SCRIPT = `
                 <span style="background: rgba(59, 130, 246, 0.2); color: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold;">1</span>
                 Create a Vault
               </h4>
-              <p style="color: var(--fg-mutated); font-size: 0.95rem;">Sign in and create a shared workspace for your AI assistants. You'll get a unique MCP endpoint URL.</p>
+              <p style="color: var(--fg-mutated); font-size: 0.95rem;">Sign in and create a shared workspace for your agents. You'll get a unique MCP endpoint URL.</p>
             </div>
             <div>
               <h4 style="color: var(--accent); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
