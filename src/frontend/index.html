@@ -40,10 +40,6 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 .member-row:last-child { border-bottom: none; }
 .member-row .role { font-size: 0.75rem; color: var(--fg2); background: var(--bg3); padding: 0.15rem 0.5rem; border-radius: 3px; margin-left: 0.5rem; }
 .empty { text-align: center; color: var(--fg-dim); padding: 2rem; }
-.note-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
-.note-row:last-child { border-bottom: none; }
-.note-row .path { font-family: monospace; font-size: 0.85rem; }
-.note-row .modified { font-size: 0.75rem; color: var(--fg2); }
 .error { color: var(--danger); font-size: 0.85rem; margin-top: 0.5rem; }
 .success { color: var(--success); font-size: 0.85rem; margin-top: 0.5rem; }
 .loading { text-align: center; color: var(--fg2); padding: 2rem; }
@@ -55,6 +51,21 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 .copyable { cursor: pointer; padding: 0.15rem 0.4rem; border-radius: 3px; transition: background 0.15s; }
 .copyable:hover { background: var(--bg3); }
 .copyable.copied { background: var(--success); color: #fff; }
+.vault-row { display: flex; align-items: center; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); cursor: pointer; gap: 1rem; }
+.vault-row:last-child { border-bottom: none; }
+.vault-row:hover { background: var(--bg3); }
+.vault-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+.vault-date { flex-shrink: 0; font-size: 0.75rem; color: var(--fg2); }
+.file-viewer { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace; font-size: 0.8rem; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; overflow-x: auto; }
+.file-viewer .md-h { color: var(--accent); font-weight: 700; }
+.file-viewer .md-bold { font-weight: 700; color: var(--fg); }
+.file-viewer .md-italic { font-style: italic; color: var(--fg); }
+.file-viewer .md-wikilink { color: var(--accent); }
+.file-viewer .md-link { color: var(--accent); text-decoration: underline; }
+.file-viewer .md-hr { color: var(--fg-dim); }
+.file-viewer .md-list { color: var(--accent); }
+.file-viewer .md-frontmatter { color: var(--fg-dim); }
+.file-path { font-family: monospace; font-size: 0.8rem; color: var(--fg2); margin-bottom: 0.75rem; }
 </style>
 </head>
 <body>
@@ -168,8 +179,6 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 
     if (route === '/login') return renderLogin();
     if (route === '/workspaces') return renderWorkspaces();
-    const wsMatch = route.match(/^\/workspaces\/([^/]+)\/notes$/);
-    if (wsMatch) return renderNotes(wsMatch[1]);
     const wsSettingsMatch = route.match(/^\/workspaces\/([^/]+)$/);
     if (wsSettingsMatch) return renderWorkspaceSettings(wsSettingsMatch[1]);
     return renderWorkspaces();
@@ -280,14 +289,42 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
       const mcpUrl = window.location.origin + '/' + ws.id + '/mcp';
       html += `<div class="meta" style="margin-bottom:1.5rem">${ws.id} &middot; MCP endpoint: <code class="copyable" onclick="window.__copy(this)" title="Click to copy">${mcpUrl}</code></div>`;
 
-      html += `<div class="tabs">
-        <div class="tab active" onclick="window.__showTab('settings')">Settings</div>
-        <div class="tab" onclick="window.__showTab('members')">Members</div>
-        <div class="tab" onclick="window.__showTab('notes')">Notes</div>
+      html += `<div class="tabs" id="ws-tabs">
+        <div class="tab active" onclick="window.__showTab('vault', this)">Vault</div>
+        <div class="tab" onclick="window.__showTab('members', this)">Members</div>
+        <div class="tab" onclick="window.__showTab('settings', this)">Settings</div>
       </div>`;
 
+      // Vault tab (active by default)
+      html += `<div id="tab-vault">
+        <div id="vault-list" class="loading">Loading notes...</div>
+      </div>`;
+
+      // File tab (hidden, no tab button yet — appears dynamically)
+      html += `<div id="tab-file" class="hidden"></div>`;
+
+      // Members tab
+      html += `<div id="tab-members" class="hidden">
+        <div class="card">
+          <div class="form-row" style="margin-bottom:1rem">
+            <input id="invite-email" placeholder="Email address">
+            <select id="invite-role" style="width:120px"><option value="member">Member</option><option value="owner">Owner</option></select>
+            <button class="btn" onclick="window.__inviteMember('${ws.id}')">Invite</button>
+          </div>
+          <div id="invite-msg"></div>
+          <div id="members-list">`;
+
+      for (const m of ws.members) {
+        html += `<div class="member-row">
+          <div>${escHtml(m.email)}<span class="role">${m.role}</span></div>
+          <button class="btn-outline" style="padding:0.25rem 0.5rem;font-size:0.75rem" onclick="window.__removeMember('${ws.id}','${escAttr(m.email)}')">Remove</button>
+        </div>`;
+      }
+
+      html += `</div></div></div>`;
+
       // Settings tab
-      html += `<div id="tab-settings">
+      html += `<div id="tab-settings" class="hidden">
         <div class="card">
           <div class="form-group">
             <label>Workspace Name</label>
@@ -314,56 +351,170 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
         </div>
       </div>`;
 
-      // Members tab
-      html += `<div id="tab-members" class="hidden">
-        <div class="card">
-          <div class="form-row" style="margin-bottom:1rem">
-            <input id="invite-email" placeholder="Email address">
-            <select id="invite-role" style="width:120px"><option value="member">Member</option><option value="owner">Owner</option></select>
-            <button class="btn" onclick="window.__inviteMember('${ws.id}')">Invite</button>
-          </div>
-          <div id="invite-msg"></div>
-          <div id="members-list">`;
-
-      for (const m of ws.members) {
-        html += `<div class="member-row">
-          <div>${escHtml(m.email)}<span class="role">${m.role}</span></div>
-          <button class="btn-outline" style="padding:0.25rem 0.5rem;font-size:0.75rem" onclick="window.__removeMember('${ws.id}','${escAttr(m.email)}')">Remove</button>
-        </div>`;
-      }
-
-      html += `</div></div></div>`;
-
-      // Notes tab
-      html += `<div id="tab-notes" class="hidden">
-        <div class="card"><div id="notes-list" class="loading">Loading notes...</div></div>
-      </div>`;
-
       html += `<div id="settings-error"></div>`;
       app().innerHTML = html;
 
-      // Load notes lazily
-      loadNotes(id);
+      // Load vault notes
+      loadVault(id);
     } catch (e) {
       app().innerHTML = `<div class="error">${escHtml(e.message)}</div>`;
     }
   }
 
-  async function loadNotes(workspaceId) {
-    // We can't call MCP tools directly from the REST API, so we'll list from the workspace index
-    // For now, show a placeholder. Notes are managed via MCP tools.
-    const notesList = $('notes-list');
-    if (!notesList) return;
-    var mcpEndpoint = window.location.origin + '/' + workspaceId + '/mcp';
-    notesList.innerHTML = '<div class="empty">Notes are managed through MCP tools (Claude, Cursor, etc.).<br>Connect an MCP client to <code class="copyable" onclick="window.__copy(this)" title="Click to copy">' + mcpEndpoint + '</code> to get started.</div>';
+  async function loadVault(workspaceId) {
+    const container = $('vault-list');
+    if (!container) return;
+    try {
+      const data = await api(`/api/workspaces/${workspaceId}/notes`);
+      if (!data.notes || data.notes.length === 0) {
+        const mcpEndpoint = window.location.origin + '/' + workspaceId + '/mcp';
+        container.innerHTML = '<div class="empty">No notes yet.<br>Connect an MCP client to <code class="copyable" onclick="window.__copy(this)" title="Click to copy">' + mcpEndpoint + '</code> to get started.</div>';
+        container.classList.remove('loading');
+        return;
+      }
+      let html = '<div class="card" style="padding:0.5rem 0">';
+      for (const note of data.notes) {
+        const name = escHtml(note.title || note.path);
+        const date = formatRelativeDate(note.modified);
+        html += `<div class="vault-row" onclick="window.__openFile('${escAttr(workspaceId)}','${escAttr(note.path)}')">
+          <span class="vault-name" title="${escAttr(note.path)}">${name}</span>
+          <span class="vault-date">${date}</span>
+        </div>`;
+      }
+      html += '</div>';
+      container.innerHTML = html;
+      container.classList.remove('loading');
+    } catch (e) {
+      container.innerHTML = `<div class="error">${escHtml(e.message)}</div>`;
+      container.classList.remove('loading');
+    }
   }
 
-  window.__showTab = function(tabId) {
-    document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden'));
-    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  window.__openFile = async function(wsId, path) {
+    const fileTab = $('tab-file');
+    if (!fileTab) return;
+    fileTab.innerHTML = '<div class="loading">Loading file...</div>';
+
+    // Show File tab in tab bar if not already there
+    const tabBar = $('ws-tabs');
+    if (tabBar && !$('file-tab-btn')) {
+      const btn = document.createElement('div');
+      btn.className = 'tab';
+      btn.id = 'file-tab-btn';
+      btn.textContent = 'File';
+      btn.onclick = function() { window.__showTab('file', btn); };
+      tabBar.appendChild(btn);
+    }
+
+    // Switch to File tab
+    window.__showTab('file', $('file-tab-btn'));
+
+    try {
+      const data = await api(`/api/workspaces/${wsId}/notes/${path}`);
+      const note = data.note;
+      let html = `<div class="file-path">${escHtml(note.path)}</div>`;
+      html += `<div class="file-viewer">${renderMarkdown(note.body)}</div>`;
+      fileTab.innerHTML = html;
+    } catch (e) {
+      fileTab.innerHTML = `<div class="error">${escHtml(e.message)}</div>`;
+    }
+  };
+
+  function renderMarkdown(text) {
+    // Split into lines and process each
+    const lines = text.split('\n');
+    let inFrontmatter = false;
+    let frontmatterDone = false;
+    const result = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Frontmatter detection
+      if (i === 0 && line.trim() === '---') {
+        inFrontmatter = true;
+        result.push('<span class="md-frontmatter">' + escHtml(line) + '</span>');
+        continue;
+      }
+      if (inFrontmatter) {
+        result.push('<span class="md-frontmatter">' + escHtml(line) + '</span>');
+        if (line.trim() === '---') {
+          inFrontmatter = false;
+          frontmatterDone = true;
+        }
+        continue;
+      }
+
+      // Headings: lines starting with #
+      const headingMatch = line.match(/^(#{1,6}\s+.*)$/);
+      if (headingMatch) {
+        result.push('<span class="md-h">' + escHtml(line) + '</span>');
+        continue;
+      }
+
+      // Horizontal rules
+      if (/^(\s*[-*_]\s*){3,}$/.test(line)) {
+        result.push('<span class="md-hr">' + escHtml(line) + '</span>');
+        continue;
+      }
+
+      // Process inline formatting
+      result.push(processInline(line));
+    }
+
+    return result.join('\n');
+  }
+
+  function processInline(line) {
+    // Escape HTML first, then apply formatting on the escaped text
+    let out = escHtml(line);
+
+    // Bold: **text** or __text__
+    out = out.replace(/\*\*(.+?)\*\*/g, '<span class="md-bold">**$1**</span>');
+    out = out.replace(/__(.+?)__/g, '<span class="md-bold">__$1__</span>');
+
+    // Italic: *text* or _text_ (but not inside bold markers)
+    out = out.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<span class="md-italic">*$1*</span>');
+    out = out.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<span class="md-italic">_$1_</span>');
+
+    // WikiLinks: [[target]] or [[target|display]]
+    out = out.replace(/\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]/g, function(match, target, display) {
+      return '<span class="md-wikilink">[[' + (display || target) + ']]</span>';
+    });
+
+    // Markdown links: [text](url)
+    out = out.replace(/\[([^\]]+?)\]\(([^)]+?)\)/g, function(match, text, url) {
+      return '<a class="md-link" href="' + url + '" target="_blank" rel="noopener">[' + text + '](' + url + ')</a>';
+    });
+
+    // List markers: - or * at start of line
+    out = out.replace(/^(\s*)([-*+])\s/, '$1<span class="md-list">$2</span> ');
+
+    return out;
+  }
+
+  function formatRelativeDate(isoStr) {
+    if (!isoStr) return '';
+    const date = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return diffMins + 'm ago';
+    if (diffHours < 24) return diffHours + 'h ago';
+    if (diffDays < 7) return diffDays + 'd ago';
+    return date.toLocaleDateString();
+  }
+
+  window.__showTab = function(tabId, el) {
+    document.querySelectorAll('[id^="tab-"]').forEach(t => t.classList.add('hidden'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     const tabEl = $(`tab-${tabId}`);
     if (tabEl) tabEl.classList.remove('hidden');
-    event.target.classList.add('active');
+    if (el) el.classList.add('active');
   };
 
   window.__updateWorkspace = async function(id) {
@@ -443,11 +594,9 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
   // Init
   window.addEventListener('hashchange', router);
   window.addEventListener('load', () => {
-    // Handle OAuth callback — check for code in URL params
     const params = new URLSearchParams(window.location.search);
     if (params.has('code')) {
-      // Exchange code for token (simplified — in production this would use PKCE)
-      // For the admin SPA, we rely on the OAuth flow completing and providing a token
+      // OAuth callback handled by router
     }
     router();
   });

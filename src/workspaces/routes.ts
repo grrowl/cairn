@@ -11,6 +11,8 @@ import {
 	removeWorkspaceFromUser,
 	checkMembership,
 } from "./membership";
+import { readNote } from "../storage/notes";
+import type { WorkspaceIndex } from "../storage/workspace-index";
 
 interface AuthContext {
 	email: string;
@@ -341,4 +343,62 @@ workspaceRoutes.get("/api/workspaces/:id/rebuild-index", async (c) => {
 	const result = await (index as any).rebuildStatus();
 
 	return c.json(result);
+});
+
+// List notes in workspace
+workspaceRoutes.get("/api/workspaces/:id/notes", async (c) => {
+	const { email } = c.get("auth");
+	const bucket = c.env.BUCKET;
+	const workspaceId = c.req.param("id");
+
+	const workspace = await getWorkspaceMetadata(bucket, workspaceId);
+	if (!workspace) {
+		return c.json({ error: "Workspace not found" }, 404);
+	}
+
+	const { authorized } = checkMembership(workspace, email, c.env.ADMIN_EMAIL);
+	if (!authorized) {
+		return c.json({ error: "Unauthorized" }, 403);
+	}
+
+	const indexId = c.env.WORKSPACE_INDEX.idFromName(workspaceId);
+	const index = c.env.WORKSPACE_INDEX.get(indexId) as DurableObjectStub<WorkspaceIndex>;
+	const result = await index.listNotes({
+		sort: "modified",
+		recursive: true,
+		limit: 200,
+	});
+
+	return c.json(result);
+});
+
+// Read a single note
+workspaceRoutes.get("/api/workspaces/:id/notes/:path{.+}", async (c) => {
+	const { email } = c.get("auth");
+	const bucket = c.env.BUCKET;
+	const workspaceId = c.req.param("id");
+	const notePath = c.req.param("path");
+
+	const workspace = await getWorkspaceMetadata(bucket, workspaceId);
+	if (!workspace) {
+		return c.json({ error: "Workspace not found" }, 404);
+	}
+
+	const { authorized } = checkMembership(workspace, email, c.env.ADMIN_EMAIL);
+	if (!authorized) {
+		return c.json({ error: "Unauthorized" }, 403);
+	}
+
+	const note = await readNote(bucket, workspaceId, notePath);
+	if (!note) {
+		return c.json({ error: "Note not found" }, 404);
+	}
+
+	return c.json({
+		note: {
+			path: notePath,
+			frontmatter: note.frontmatter,
+			body: note.body,
+		},
+	});
 });
