@@ -51,6 +51,9 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 .tab { padding: 0.5rem 1rem; font-size: 0.85rem; color: var(--fg2); cursor: pointer; border-bottom: 2px solid transparent; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .hidden { display: none; }
+.copyable { cursor: pointer; padding: 0.15rem 0.4rem; border-radius: 3px; transition: background 0.15s; }
+.copyable:hover { background: var(--bg3); }
+.copyable.copied { background: var(--success); color: #fff; }
 </style>
 </head>
 <body>
@@ -273,7 +276,8 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 
       let html = `<a href="#/workspaces" class="nav-back">&larr; All Workspaces</a>`;
       html += `<h2 style="margin-bottom:0.25rem">${escHtml(ws.name)}</h2>`;
-      html += `<div class="meta" style="margin-bottom:1.5rem">${ws.id}</div>`;
+      const mcpUrl = window.location.origin + '/' + ws.id + '/mcp';
+      html += `<div class="meta" style="margin-bottom:1.5rem">${ws.id} &middot; MCP endpoint: <code class="copyable" onclick="window.__copy(this)" title="Click to copy">${mcpUrl}</code></div>`;
 
       html += `<div class="tabs">
         <div class="tab active" onclick="window.__showTab('settings')">Settings</div>
@@ -356,7 +360,8 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
     // For now, show a placeholder. Notes are managed via MCP tools.
     const notesList = $('notes-list');
     if (!notesList) return;
-    notesList.innerHTML = '<div class="empty">Notes are managed through MCP tools (Claude, Cursor, etc.).<br>Connect an MCP client to <code>/' + workspaceId + '/mcp</code> to get started.</div>';
+    var mcpEndpoint = window.location.origin + '/' + workspaceId + '/mcp';
+    notesList.innerHTML = '<div class="empty">Notes are managed through MCP tools (Claude, Cursor, etc.).<br>Connect an MCP client to <code class="copyable" onclick="window.__copy(this)" title="Click to copy">' + mcpEndpoint + '</code> to get started.</div>';
   }
 
   window.__showTab = function(tabId) {
@@ -415,6 +420,15 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
       const result = await api(`/api/workspaces/${wsId}/rebuild-index`, { method: 'POST' });
       msg.innerHTML = `<div class="success">Index rebuilt: ${result.notes_indexed} notes indexed</div>`;
     } catch (e) { msg.innerHTML = `<div class="error">${escHtml(e.message)}</div>`; }
+  };
+
+  window.__copy = function(el) {
+    navigator.clipboard.writeText(el.textContent).then(() => {
+      el.classList.add('copied');
+      const orig = el.textContent;
+      el.textContent = 'Copied!';
+      setTimeout(() => { el.classList.remove('copied'); el.textContent = orig; }, 1200);
+    });
   };
 
   window.__deleteWorkspace = async function(wsId) {

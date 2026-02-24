@@ -51,6 +51,9 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); margin-right: 0.75rem;
 .tab { padding: 0.5rem 1rem; font-size: 0.85rem; color: var(--fg2); cursor: pointer; border-bottom: 2px solid transparent; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .hidden { display: none; }
+.copyable { cursor: pointer; padding: 0.15rem 0.4rem; border-radius: 3px; transition: background 0.15s; }
+.copyable:hover { background: var(--bg3); }
+.copyable.copied { background: var(--success); color: #fff; }
 </style>
 </head>
 <body>
@@ -217,7 +220,8 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); margin-right: 0.75rem;
       var ws = data.workspace;
       var html = '<a href="#/workspaces" class="nav-back">&larr; All Workspaces</a>';
       html += '<h2 style="margin-bottom:0.25rem">' + escHtml(ws.name) + '</h2>';
-      html += '<div class="meta" style="margin-bottom:1.5rem">' + ws.id + ' &middot; MCP endpoint: <code>/' + ws.id + '/mcp</code></div>';
+      var mcpUrl = window.location.origin + '/' + ws.id + '/mcp';
+      html += '<div class="meta" style="margin-bottom:1.5rem">' + ws.id + ' &middot; MCP endpoint: <code class="copyable" onclick="window.__copy(this)" title="Click to copy">' + mcpUrl + '</code></div>';
 
       html += '<div class="tabs"><div class="tab active" data-tab="settings" onclick="window.__showTab(\\'settings\\', this)">Settings</div><div class="tab" data-tab="members" onclick="window.__showTab(\\'members\\', this)">Members</div></div>';
 
@@ -280,6 +284,15 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); margin-right: 0.75rem;
     var msg = $('admin-msg');
     msg.innerHTML = '<span style="color:var(--fg2)">Rebuilding index...</span>';
     api('/api/workspaces/' + wsId + '/rebuild-index', { method: 'POST' }).then(function(result) { msg.innerHTML = '<div class="success">Index rebuilt: ' + result.notes_indexed + ' notes indexed</div>'; }).catch(function(e) { msg.innerHTML = '<div class="error">' + escHtml(e.message) + '</div>'; });
+  };
+
+  window.__copy = function(el) {
+    navigator.clipboard.writeText(el.textContent).then(function() {
+      el.classList.add('copied');
+      var orig = el.textContent;
+      el.textContent = 'Copied!';
+      setTimeout(function() { el.classList.remove('copied'); el.textContent = orig; }, 1200);
+    });
   };
 
   window.__deleteWorkspace = function(wsId) {
