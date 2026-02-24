@@ -1,7 +1,3 @@
-// This file exports the frontend HTML as a string.
-// In production, this would be generated from index.html at build time.
-// For now, we inline it directly.
-
 export const FRONTEND_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -542,9 +538,10 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
       return '<a class="md-wikilink" href="#" onclick="window.__openFile(\\'' + escAttr(wsId) + '\\',\\'' + escAttr(target) + '\\');return false">[[' + (display || target) + ']]</a>';
     });
 
-    // Markdown links: [text](url)
+    // Markdown links: [text](url) — block javascript:/data:/vbscript: protocols
     out = out.replace(/\\[([^\\]]+?)\\]\\(([^)]+?)\\)/g, function(match, text, url) {
-      return '<a class="md-link" href="' + url + '" target="_blank" rel="noopener">[' + text + '](' + url + ')</a>';
+      if (/^(javascript|data|vbscript):/i.test(url.trim())) return match;
+      return '<a class="md-link" href="' + escAttr(url) + '" target="_blank" rel="noopener">[' + text + '](' + url + ')</a>';
     });
 
     // List markers: - or * at start of line
