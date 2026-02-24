@@ -159,14 +159,17 @@ export async function patchNote(
 			if (!find) {
 				throw new PatchError("validation_error", "'replace' op requires 'find' parameter");
 			}
-			const count = parsed.body.split(find).length - 1;
+			const count = raw.split(find).length - 1;
 			if (count === 0) {
 				throw new PatchError("not_found", `'find' text not found in note '${path}'`);
 			}
 			if (count > 1) {
 				throw new PatchError("conflict", `'find' text appears ${count} times in note '${path}' (ambiguous)`);
 			}
-			newBody = parsed.body.replace(find, content);
+			const replaced = raw.replace(find, content);
+			const reParsed = parseFrontmatter(replaced);
+			parsed.frontmatter = reParsed.frontmatter;
+			newBody = reParsed.body;
 			break;
 		}
 
