@@ -46,7 +46,7 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		}
 		const getTimezone = () => cachedTimezone;
 
-		// Register all 8 MCP tools + ping
+		// Register all 8 MCP tools
 		registerReadTool(this.server, getBucket, getWorkspaceId, getIndex);
 		registerWriteTool(this.server, getBucket, getWorkspaceId, getIndex);
 		registerListTool(this.server, getIndex);
@@ -55,20 +55,6 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		registerDeleteTool(this.server, getBucket, getWorkspaceId, getIndex);
 		registerSearchTool(this.server, getIndex, getBucket, getWorkspaceId);
 		registerLinksTool(this.server, getIndex);
-
-		this.server.tool("cairn_ping", "Check that the Cairn MCP server is running", {}, async () => ({
-			content: [
-				{
-					type: "text" as const,
-					text: JSON.stringify({
-						status: "ok",
-						timestamp: new Date().toISOString(),
-						user: this.props?.email,
-						workspace: this.props?.workspaceId,
-					}),
-				},
-			],
-		}));
 	}
 }
 
