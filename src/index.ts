@@ -10,6 +10,7 @@ import { registerDailyTool } from "./mcp/tools/daily";
 import { registerPatchTool } from "./mcp/tools/patch";
 import { registerDeleteTool } from "./mcp/tools/delete";
 import { registerSearchTool } from "./mcp/tools/search";
+import { registerLinksTool } from "./mcp/tools/links";
 
 export { WorkspaceIndex } from "./storage/workspace-index";
 
@@ -39,6 +40,7 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		registerPatchTool(this.server, getBucket, getWorkspaceId, getIndex);
 		registerDeleteTool(this.server, getBucket, getWorkspaceId, getIndex);
 		registerSearchTool(this.server, getIndex);
+		registerLinksTool(this.server, getIndex);
 
 		// Ping tool for basic health checks
 		this.server.tool("cairn_ping", "Check that the Cairn MCP server is running", {}, async () => ({
