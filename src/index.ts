@@ -3,6 +3,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { GoogleHandler } from "./google-handler";
 import type { Props } from "./utils";
+import { registerReadTool } from "./mcp/tools/read";
+import { registerWriteTool } from "./mcp/tools/write";
+import { registerListTool } from "./mcp/tools/list";
+import { registerDailyTool } from "./mcp/tools/daily";
 
 export { WorkspaceIndex } from "./storage/workspace-index";
 
@@ -12,11 +16,29 @@ export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
 		version: "0.1.0",
 	});
 
+	private getWorkspaceIndex(): DurableObjectStub {
+		const workspaceId = this.props?.workspaceId || "default";
+		const id = this.env.WORKSPACE_INDEX.idFromName(workspaceId);
+		return this.env.WORKSPACE_INDEX.get(id);
+	}
+
 	async init() {
+		const getBucket = () => this.env.BUCKET;
+		const getWorkspaceId = () => this.props?.workspaceId || "default";
+		const getIndex = () => this.getWorkspaceIndex();
+		const getTimezone = () => "Australia/Melbourne"; // Default; will use workspace settings in Phase 5
+
+		// Register MCP tools
+		registerReadTool(this.server, getBucket, getWorkspaceId, getIndex);
+		registerWriteTool(this.server, getBucket, getWorkspaceId, getIndex);
+		registerListTool(this.server, getIndex);
+		registerDailyTool(this.server, getBucket, getWorkspaceId, getIndex, getTimezone);
+
+		// Ping tool for basic health checks
 		this.server.tool("cairn_ping", "Check that the Cairn MCP server is running", {}, async () => ({
 			content: [
 				{
-					type: "text",
+					type: "text" as const,
 					text: JSON.stringify({
 						status: "ok",
 						timestamp: new Date().toISOString(),
