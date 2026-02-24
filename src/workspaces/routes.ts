@@ -42,13 +42,20 @@ workspaceRoutes.get("/api/workspaces", async (c) => {
 
 	// If admin, also find all workspaces
 	if (adminEmail && email === adminEmail) {
-		const listed = await bucket.list({ prefix: "_system/workspaces/" });
-		for (const obj of listed.objects) {
-			const id = obj.key.replace("_system/workspaces/", "").replace(".json", "");
-			if (!workspaceIds.includes(id)) {
-				workspaceIds.push(id);
+		let cursor: string | undefined;
+		do {
+			const listed = await bucket.list({
+				prefix: "_system/workspaces/",
+				cursor,
+			});
+			for (const obj of listed.objects) {
+				const id = obj.key.replace("_system/workspaces/", "").replace(".json", "");
+				if (!workspaceIds.includes(id)) {
+					workspaceIds.push(id);
+				}
 			}
-		}
+			cursor = listed.truncated ? listed.cursor : undefined;
+		} while (cursor);
 	}
 
 	const workspaces: WorkspaceMetadata[] = [];
