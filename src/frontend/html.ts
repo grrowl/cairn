@@ -51,6 +51,7 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
 .tab { padding: 0.5rem 1rem; font-size: 0.85rem; color: var(--fg2); cursor: pointer; border-bottom: 2px solid transparent; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab.disabled { color: var(--fg-dim); cursor: default; }
 .hidden { display: none; }
 .copyable { cursor: pointer; padding: 0.15rem 0.4rem; border-radius: 3px; transition: background 0.15s; }
 .copyable:hover { background: var(--bg3); }
@@ -64,7 +65,8 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 .file-viewer .md-h { color: var(--accent); font-weight: 700; }
 .file-viewer .md-bold { font-weight: 700; color: var(--fg); }
 .file-viewer .md-italic { font-style: italic; color: var(--fg); }
-.file-viewer .md-wikilink { color: var(--accent); }
+.file-viewer .md-wikilink { color: var(--accent); cursor: pointer; text-decoration: none; }
+.file-viewer .md-wikilink:hover { text-decoration: underline; }
 .file-viewer .md-link { color: var(--accent); text-decoration: underline; }
 .file-viewer .md-hr { color: var(--fg-dim); }
 .file-viewer .md-list { color: var(--accent); }
@@ -86,6 +88,7 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
   let token = null;
   let userEmail = null;
   let userName = null;
+  let currentWorkspaceId = null;
 
   const $ = (id) => document.getElementById(id);
   const app = () => $('app');
@@ -183,6 +186,8 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 
     if (route === '/login') return renderLogin();
     if (route === '/workspaces') return renderWorkspaces();
+    const wsFileMatch = route.match(/^\\/workspaces\\/([^/]+)\\/(.+)$/);
+    if (wsFileMatch) return renderWorkspaceSettings(wsFileMatch[1], wsFileMatch[2]);
     const wsSettingsMatch = route.match(/^\\/workspaces\\/([^/]+)$/);
     if (wsSettingsMatch) return renderWorkspaceSettings(wsSettingsMatch[1]);
     return renderWorkspaces();
@@ -282,7 +287,8 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
   };
 
   // Workspace settings
-  async function renderWorkspaceSettings(id) {
+  async function renderWorkspaceSettings(id, filePath) {
+    currentWorkspaceId = id;
     app().innerHTML = '<div class="loading">Loading workspace...</div>';
     try {
       const data = await api(\`/api/workspaces/\${id}\`);
@@ -295,6 +301,7 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 
       html += \`<div class="tabs" id="ws-tabs">
         <div class="tab active" onclick="window.__showTab('vault', this)">Vault</div>
+        <div class="tab disabled" id="file-tab-btn" onclick="window.__showTab('file', this)">File</div>
         <div class="tab" onclick="window.__showTab('members', this)">Members</div>
         <div class="tab" onclick="window.__showTab('settings', this)">Settings</div>
       </div>\`;
@@ -304,7 +311,7 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
         <div id="vault-list" class="loading">Loading notes...</div>
       </div>\`;
 
-      // File tab (hidden, no tab button yet — appears dynamically)
+      // File tab (hidden until a file is opened)
       html += \`<div id="tab-file" class="hidden"></div>\`;
 
       // Members tab
@@ -360,6 +367,11 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 
       // Load vault notes
       loadVault(id);
+
+      // If a file path was provided (from URL), open it
+      if (filePath) {
+        window.__openFile(id, filePath);
+      }
     } catch (e) {
       app().innerHTML = \`<div class="error">\${escHtml(e.message)}</div>\`;
     }
@@ -378,7 +390,7 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
       }
       let html = '<div class="card" style="padding:0.5rem 0">';
       for (const note of data.notes) {
-        const name = escHtml(note.title || note.path);
+        const name = escHtml(note.path);
         const date = formatRelativeDate(note.modified);
         html += \`<div class="vault-row" onclick="window.__openFile('\${escAttr(workspaceId)}','\${escAttr(note.path)}')">
           <span class="vault-name" title="\${escAttr(note.path)}">\${name}</span>
@@ -399,19 +411,15 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
     if (!fileTab) return;
     fileTab.innerHTML = '<div class="loading">Loading file...</div>';
 
-    // Show File tab in tab bar if not already there
-    const tabBar = $('ws-tabs');
-    if (tabBar && !$('file-tab-btn')) {
-      const btn = document.createElement('div');
-      btn.className = 'tab';
-      btn.id = 'file-tab-btn';
-      btn.textContent = 'File';
-      btn.onclick = function() { window.__showTab('file', btn); };
-      tabBar.appendChild(btn);
-    }
+    // Enable the File tab button
+    const btn = $('file-tab-btn');
+    if (btn) btn.classList.remove('disabled');
 
     // Switch to File tab
-    window.__showTab('file', $('file-tab-btn'));
+    window.__showTab('file', btn);
+
+    // Update URL without triggering router
+    history.replaceState({}, '', '#/workspaces/' + wsId + '/' + path);
 
     try {
       const data = await api(\`/api/workspaces/\${wsId}/notes/\${path}\`);
@@ -483,7 +491,8 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 
     // WikiLinks: [[target]] or [[target|display]]
     out = out.replace(/\\[\\[([^\\]|]+?)(?:\\|([^\\]]+?))?\\]\\]/g, function(match, target, display) {
-      return '<span class="md-wikilink">[[' + (display || target) + ']]</span>';
+      const wsId = currentWorkspaceId || '';
+      return '<a class="md-wikilink" href="#" onclick="window.__openFile(\\'' + escAttr(wsId) + '\\',\\'' + escAttr(target) + '\\');return false">[[' + (display || target) + ']]</a>';
     });
 
     // Markdown links: [text](url)
@@ -519,6 +528,11 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
     const tabEl = $(\`tab-\${tabId}\`);
     if (tabEl) tabEl.classList.remove('hidden');
     if (el) el.classList.add('active');
+
+    // Update URL when switching away from file tab
+    if (tabId !== 'file' && currentWorkspaceId) {
+      history.replaceState({}, '', '#/workspaces/' + currentWorkspaceId);
+    }
   };
 
   window.__updateWorkspace = async function(id) {
