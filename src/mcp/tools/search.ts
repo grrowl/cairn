@@ -54,6 +54,14 @@ export function registerSearchTool(
 				};
 			}
 
+			// Validate query produces usable tokens (all terms must be >= 2 chars)
+			if (query && query.trim().length > 0 && query.trim().length < 2) {
+				return {
+					content: [{ type: "text" as const, text: "validation_error: Search query must be at least 2 characters" }],
+					isError: true,
+				};
+			}
+
 			const index = getIndex();
 			const result = await index.search({
 				query,

@@ -53,7 +53,7 @@ function tokenise(text: string): string[] {
 	return text
 		.toLowerCase()
 		.split(/[\s\p{P}]+/u)
-		.filter((t) => t.length >= 3);
+		.filter((t) => t.length >= 2);
 }
 
 export class WorkspaceIndex extends DurableObject<Env> {
