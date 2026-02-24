@@ -55,7 +55,7 @@ export function registerDailyTool(
 				};
 				const initialContent = serialiseFrontmatter(dailyFrontmatter, "\n");
 
-				const result = await writeNote(bucket, workspaceId, path, initialContent);
+				await writeNote(bucket, workspaceId, path, initialContent);
 				const index = getIndex();
 				const metadata: NoteMetadata = {
 					title: noteDate,
@@ -125,13 +125,7 @@ export function registerDailyTool(
 					created: result.frontmatter.created || new Date().toISOString(),
 					modified: result.frontmatter.modified || new Date().toISOString(),
 				};
-				const indexResult = await index.noteUpdated(path, metadata);
-				if (indexResult.conflicts && indexResult.conflicts.length > 0) {
-					return {
-						content: [{ type: "text" as const, text: `alias_conflict: ${indexResult.conflicts.join("; ")}` }],
-						isError: true,
-					};
-				}
+				await index.noteUpdated(path, metadata);
 
 				return {
 					content: [

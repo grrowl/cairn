@@ -39,13 +39,20 @@ export function registerPatchTool(
 					created: result.frontmatter.created || new Date().toISOString(),
 					modified: result.frontmatter.modified || new Date().toISOString(),
 				};
-				const indexResult = await index.noteUpdated(path, metadata);
-				if (indexResult.conflicts && indexResult.conflicts.length > 0) {
-					return {
-						content: [{ type: "text" as const, text: `alias_conflict: ${indexResult.conflicts.join("; ")}` }],
-						isError: true,
-					};
+
+				// Check alias conflicts after patch (aliases may have changed via frontmatter edit)
+				const aliases = metadata.aliases;
+				if (aliases.length > 0) {
+					const conflicts = await index.checkAliasConflicts(path, aliases);
+					if (conflicts.length > 0) {
+						return {
+							content: [{ type: "text" as const, text: `alias_conflict: ${conflicts.join("; ")}. Note content was saved but index not updated.` }],
+							isError: true,
+						};
+					}
 				}
+
+				await index.noteUpdated(path, metadata);
 
 				return {
 					content: [

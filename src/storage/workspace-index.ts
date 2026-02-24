@@ -102,28 +102,25 @@ export class WorkspaceIndex extends DurableObject<Env> {
 		return { status: "ok", timestamp: new Date().toISOString() };
 	}
 
-	async noteUpdated(path: string, metadata: NoteMetadata, force = false): Promise<{ conflicts?: string[] }> {
-		// Check alias conflicts BEFORE any mutations (skip during rebuild)
-		if (!force) {
-			const conflicts: string[] = [];
-			for (const alias of metadata.aliases || []) {
-				const normalised = alias.toLowerCase().trim();
-				if (!normalised) continue;
-				const existing = [...this.sql.exec<{ canonical_path: string }>(
-					"SELECT canonical_path FROM aliases WHERE alias = ?",
-					normalised,
-				)];
-				if (existing.length > 0 && existing[0].canonical_path !== path) {
-					conflicts.push(
-						`alias '${alias}' is already claimed by '${existing[0].canonical_path}'`,
-					);
-				}
-			}
-			if (conflicts.length > 0) {
-				return { conflicts };
+	async checkAliasConflicts(path: string, aliases: string[]): Promise<string[]> {
+		const conflicts: string[] = [];
+		for (const alias of aliases) {
+			const normalised = alias.toLowerCase().trim();
+			if (!normalised) continue;
+			const existing = [...this.sql.exec<{ canonical_path: string }>(
+				"SELECT canonical_path FROM aliases WHERE alias = ?",
+				normalised,
+			)];
+			if (existing.length > 0 && existing[0].canonical_path !== path) {
+				conflicts.push(
+					`alias '${alias}' is already claimed by '${existing[0].canonical_path}'`,
+				);
 			}
 		}
+		return conflicts;
+	}
 
+	async noteUpdated(path: string, metadata: NoteMetadata): Promise<void> {
 		// Get existing created timestamp if note already exists
 		const existingRows = [...this.sql.exec<{ created: string }>(
 			"SELECT created FROM notes WHERE path = ?",
@@ -186,7 +183,6 @@ export class WorkspaceIndex extends DurableObject<Env> {
 			);
 		}
 
-		return {};
 	}
 
 	async noteDeleted(path: string): Promise<void> {
@@ -465,7 +461,7 @@ export class WorkspaceIndex extends DurableObject<Env> {
 						modified: parsed.frontmatter.modified || "",
 					};
 
-					await this.noteUpdated(path, metadata, true);
+					await this.noteUpdated(path, metadata);
 					notesIndexed++;
 				} catch (err) {
 					console.error(`rebuildIndex: failed to index ${obj.key}:`, err);
