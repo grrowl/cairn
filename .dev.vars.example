@@ -1,3 +1,4 @@
 GOOGLE_CLIENT_ID=<your google oauth client id>
 GOOGLE_CLIENT_SECRET=<your google oauth client secret>
-COOKIE_ENCRYPTION_KEY=<your cookie cookie encryption key>
+COOKIE_ENCRYPTION_KEY=<your cookie encryption key>
+ADMIN_EMAIL=<your google account email for admin access>
