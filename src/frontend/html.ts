@@ -81,6 +81,9 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
 .file-viewer .md-list { color: var(--accent); }
 .file-viewer .md-frontmatter { color: var(--fg-dim); }
 .file-path { font-family: monospace; font-size: 0.8rem; color: var(--fg2); margin-bottom: 0.75rem; }
+.file-meta { display: grid; grid-template-columns: auto 1fr; gap: 0 0.75rem; font-size: 0.8rem; margin-bottom: 0.75rem; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; }
+.file-meta-key { color: var(--fg2); white-space: nowrap; padding: 0.15rem 0; }
+.file-meta-val { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.15rem 0; cursor: default; }
 </style>
 </head>
 <body>
@@ -434,12 +437,47 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
       const data = await api(\`/api/workspaces/\${wsId}/notes/\${path}\`);
       const note = data.note;
       let html = \`<div class="file-path">\${escHtml(note.path)}</div>\`;
+      html += renderFrontmatter(note.frontmatter);
       html += \`<div class="file-viewer">\${renderMarkdown(note.body)}</div>\`;
       fileTab.innerHTML = html;
     } catch (e) {
       fileTab.innerHTML = \`<div class="error">\${escHtml(e.message)}</div>\`;
     }
   };
+
+  function renderFrontmatter(fm) {
+    if (!fm || typeof fm !== 'object') return '';
+    const keys = Object.keys(fm).filter(k => fm[k] != null && fm[k] !== '');
+    if (keys.length === 0) return '';
+    let html = '<div class="file-meta">';
+    for (const key of keys) {
+      const raw = fm[key];
+      const display = fmValueDisplay(raw);
+      const full = fmValueFull(raw);
+      html += \`<div class="file-meta-key">\${escHtml(key)}</div>\`;
+      html += \`<div class="file-meta-val" title="\${escAttr(full)}">\${escHtml(display)}</div>\`;
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function fmValueDisplay(val) {
+    if (val == null) return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    if (Array.isArray(val)) return val.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(', ');
+    if (val instanceof Date) return val.toISOString();
+    return JSON.stringify(val);
+  }
+
+  function fmValueFull(val) {
+    if (val == null) return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    if (Array.isArray(val)) return val.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(', ');
+    if (val instanceof Date) return val.toISOString();
+    return JSON.stringify(val, null, 2);
+  }
 
   function renderMarkdown(text) {
     // Split into lines and process each
