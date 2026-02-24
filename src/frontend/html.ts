@@ -12,11 +12,14 @@ export const FRONTEND_HTML = `<!DOCTYPE html>
 <meta property="og:description" content="Obsidian-like memory vault for your AI assistants. Shareable MCP knowledge vault.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://cairn.place">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://cairn.place/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="cairn">
 <meta name="twitter:description" content="Obsidian-like memory vault for your AI assistants. Shareable MCP knowledge vault.">
+<meta name="twitter:image" content="https://cairn.place/og-image.png">
 <meta name="author" content="Tom McKenzie">
 <link rel="icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 ${STYLES}
 </style>

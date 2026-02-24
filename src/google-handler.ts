@@ -229,14 +229,6 @@ app.get("/callback", async (c) => {
 
 // Serve the admin frontend SPA
 import { FRONTEND_HTML } from "./frontend/html";
-import { FAVICON_ICO } from "./frontend/favicon";
-
-app.get("/favicon.ico", (c) => {
-	const bytes = Uint8Array.from(atob(FAVICON_ICO), (ch) => ch.charCodeAt(0));
-	return new Response(bytes, {
-		headers: { "Content-Type": "image/x-icon", "Cache-Control": "public, max-age=604800" },
-	});
-});
 
 app.get("/", (c) => {
 	return c.html(FRONTEND_HTML);
