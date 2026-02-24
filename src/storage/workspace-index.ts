@@ -156,17 +156,27 @@ export class WorkspaceIndex extends DurableObject<Env> {
 			);
 		}
 
-		// Update aliases
+		// Update aliases (explicit aliases + title + last path segment)
 		this.sql.exec("DELETE FROM aliases WHERE canonical_path = ?", path);
+		const allAliases = new Set<string>();
 		for (const alias of metadata.aliases || []) {
 			const normalised = alias.toLowerCase().trim();
-			if (normalised) {
-				this.sql.exec(
-					"INSERT OR REPLACE INTO aliases (alias, canonical_path) VALUES (?, ?)",
-					normalised,
-					path,
-				);
-			}
+			if (normalised) allAliases.add(normalised);
+		}
+		// Auto-register title as alias
+		if (metadata.title) {
+			const titleAlias = metadata.title.toLowerCase().trim();
+			if (titleAlias) allAliases.add(titleAlias);
+		}
+		// Auto-register last path segment as alias
+		const lastSegment = path.split("/").pop();
+		if (lastSegment) allAliases.add(lastSegment.toLowerCase());
+		for (const alias of allAliases) {
+			this.sql.exec(
+				"INSERT OR REPLACE INTO aliases (alias, canonical_path) VALUES (?, ?)",
+				alias,
+				path,
+			);
 		}
 
 		// Update outgoing links: delete old, insert new
@@ -235,9 +245,9 @@ export class WorkspaceIndex extends DurableObject<Env> {
 
 		if (params.backlinksTo) {
 			conditions.push(
-				`n.path IN (SELECT source_path FROM links WHERE target_path = ?)`,
+				`n.path IN (SELECT source_path FROM links WHERE target_path = ? OR target_path IN (SELECT alias FROM aliases WHERE canonical_path = ?))`,
 			);
-			queryParams.push(params.backlinksTo);
+			queryParams.push(params.backlinksTo, params.backlinksTo);
 		}
 
 		const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
