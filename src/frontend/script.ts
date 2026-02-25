@@ -201,9 +201,12 @@ export const SCRIPT = `
       } else {
         html += '<div style="display: grid; gap: 1rem">';
         for (const ws of data.workspaces) {
+          const firstEmail = ws.members.length > 0 ? ws.members[0].email : '';
+          const othersCount = ws.members.length - 1;
+          const membersText = firstEmail + (othersCount > 0 ? ' + ' + othersCount + ' more' : '');
           html += \`<div class="card clickable" onclick="window.location.hash='#/workspaces/\${ws.id}'">
             <h3>\${escHtml(ws.name)}</h3>
-            <div class="meta">\${ws.id} &middot; \${ws.members.length} member\${ws.members.length !== 1 ? 's' : ''} &middot; Created \${new Date(ws.created_at).toLocaleDateString()}</div>
+            <div class="meta">\${escHtml(membersText)} &middot; Created \${new Date(ws.created_at).toLocaleDateString()}</div>
           </div>\`;
         }
         html += '</div>';
