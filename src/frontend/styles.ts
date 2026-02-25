@@ -141,6 +141,25 @@ header h1 a { color: var(--fg); }
 header h1 a:hover { color: var(--accent); }
 header .user-info { font-size: 0.875rem; color: var(--fg-mutated); margin-right: 1rem; }
 
+.global-footer {
+  margin-top: 4rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--fg-mutated);
+}
+.global-footer a {
+  color: var(--fg-mutated);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 4px;
+}
+.global-footer a:hover {
+  color: var(--fg);
+  text-decoration-color: var(--fg-mutated);
+}
+
 /* Responsive Media Queries */
 @media (max-width: 600px) {
   .form-row {

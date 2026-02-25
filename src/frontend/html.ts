@@ -31,6 +31,9 @@ ${STYLES}
     <div id="header-right"></div>
   </header>
   <div id="app"></div>
+  <footer class="global-footer">
+    made for agents by agents / prompted by <a href="https://x.com/grrowl" target="_blank" rel="noopener noreferrer">@grrowl</a> / <a href="https://tommckenzie.dev" target="_blank" rel="noopener noreferrer">tommckenzie.dev</a>
+  </footer>
 </div>
 
 <script>
