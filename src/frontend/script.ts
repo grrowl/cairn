@@ -244,8 +244,10 @@ export const SCRIPT = `
       let html = \`<a href="#/workspaces" class="nav-back">&larr; Back to Workspaces</a>\`;
       html += \`<h2 style="margin-bottom:0.5rem;font-size:1.75rem">\${escHtml(ws.name)}</h2>\`;
       const mcpUrl = window.location.origin + '/' + ws.id + '/mcp';
+      const exportUrl = '/api/workspaces/' + ws.id + '/export.zip';
       html += \`<div class="meta" style="margin-bottom:2rem;color:var(--fg-dim)">
         Workspace ID: \${ws.id} &middot; MCP endpoint: <code class="copyable" onclick="window.__copy(this)" title="Click to copy">\${mcpUrl}</code>
+        &middot; <a href="#" onclick="window.__downloadZip('\${escAttr(ws.id)}');return false" style="font-size:0.8rem">Download ZIP</a>
       </div>\`;
 
       html += \`<div class="tabs" id="ws-tabs">
@@ -594,6 +596,32 @@ export const SCRIPT = `
       await api(\`/api/workspaces/\${wsId}\`, { method: 'DELETE' });
       navigate('#/workspaces');
     } catch (e) { $('admin-msg').innerHTML = \`<div class="error">\${escHtml(e.message)}</div>\`; }
+  };
+
+  window.__downloadZip = async function(wsId) {
+    const t = getToken();
+    if (!t) { navigate('#/login'); return; }
+    try {
+      const res = await fetch(\`/api/workspaces/\${wsId}/export.zip\`, {
+        headers: { 'Authorization': \`Bearer \${t}\` },
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Export failed');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = res.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] || (wsId + '.zip');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Export failed: ' + e.message);
+    }
   };
 
   function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }

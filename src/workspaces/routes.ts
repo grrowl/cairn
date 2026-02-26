@@ -13,6 +13,7 @@ import {
 } from "./membership";
 import { readNote } from "../storage/notes";
 import type { WorkspaceIndex } from "../storage/workspace-index";
+import { zipSync } from "fflate";
 
 interface AuthContext {
 	email: string;
@@ -343,6 +344,48 @@ workspaceRoutes.get("/api/workspaces/:id/rebuild-index", async (c) => {
 	const result = await (index as any).rebuildStatus();
 
 	return c.json(result);
+});
+
+// Export workspace as ZIP
+workspaceRoutes.get("/api/workspaces/:id/export.zip", async (c) => {
+	const { email } = c.get("auth");
+	const bucket = c.env.BUCKET;
+	const workspaceId = c.req.param("id");
+
+	const workspace = await getWorkspaceMetadata(bucket, workspaceId);
+	if (!workspace) return c.json({ error: "Workspace not found" }, 404);
+
+	const { authorized } = checkMembership(workspace, email, c.env.ADMIN_EMAIL);
+	if (!authorized) return c.json({ error: "Forbidden" }, 403);
+
+	const files: Record<string, Uint8Array> = {};
+	let cursor: string | undefined;
+	const prefix = `${workspaceId}/notes/`;
+
+	do {
+		const listed = await bucket.list({ prefix, cursor, limit: 1000 });
+		for (const obj of listed.objects) {
+			const r2obj = await bucket.get(obj.key);
+			if (!r2obj) continue;
+			const path = obj.key.slice(prefix.length);
+			files[path] = new Uint8Array(await r2obj.arrayBuffer());
+		}
+		cursor = listed.truncated ? listed.cursor : undefined;
+	} while (cursor);
+
+	if (Object.keys(files).length === 0) {
+		return c.json({ error: "No notes to export" }, 404);
+	}
+
+	const zip = zipSync(files);
+	const date = new Date().toISOString().split("T")[0];
+
+	return new Response(zip, {
+		headers: {
+			"Content-Type": "application/zip",
+			"Content-Disposition": `attachment; filename="${workspaceId}-${date}.zip"`,
+		},
+	});
 });
 
 // List notes in workspace
