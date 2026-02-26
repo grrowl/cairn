@@ -427,7 +427,7 @@ header .user-info { font-size: 0.8rem; color: var(--fg2); }
     window.__showTab('file', btn);
 
     // Update URL without triggering router
-    history.replaceState({}, '', '#/workspaces/' + wsId + '/' + path);
+    history.pushState({}, '', '#/workspaces/' + wsId + '/' + path);
 
     try {
       const data = await api(`/api/workspaces/${wsId}/notes/${path}`);

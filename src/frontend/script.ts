@@ -389,7 +389,7 @@ export const SCRIPT = `
     if (btn) btn.classList.remove('disabled');
 
     window.__showTab('file', btn);
-    history.replaceState({}, '', '#/workspaces/' + wsId + '/' + path);
+    history.pushState({}, '', '#/workspaces/' + wsId + '/' + path);
 
     try {
       const data = await api(\`/api/workspaces/\${wsId}/notes/\${path}\`);
