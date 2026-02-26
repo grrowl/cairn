@@ -113,7 +113,7 @@ export const SCRIPT = `
     app().innerHTML = \`
       <div style="text-align:center;padding:4rem 0">
         <h2 style="margin-bottom:1rem;font-size:2rem;font-weight:700">Welcome to cairn</h2>
-        <p style="color:var(--fg-dim);margin-bottom:2.5rem;font-size:1.1rem">Obsidian-like memory vault for your agents</p>
+        <p style="color:var(--fg-dim);margin-bottom:2.5rem;font-size:1.1rem">Shared graph knowledge vault for your agents</p>
         <button class="btn" onclick="window.__startLogin()" style="padding:0.75rem 2.5rem;font-size:1.1rem;margin-bottom:4rem">
           Sign in with Google
         </button>

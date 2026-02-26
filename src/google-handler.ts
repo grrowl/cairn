@@ -39,7 +39,7 @@ app.get("/authorize", async (c) => {
 		client: await c.env.OAUTH_PROVIDER.lookupClient(clientId),
 		csrfToken,
 		server: {
-			description: "Obsidian-like memory vault for your agents.",
+			description: "Shared graph knowledge vault for your agents.",
 			name: "cairn",
 		},
 		setCookie,

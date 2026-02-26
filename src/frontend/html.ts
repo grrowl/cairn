@@ -6,16 +6,16 @@ export const FRONTEND_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cairn — Obsidian-like memory vault for your agents</title>
-<meta name="description" content="Obsidian-like memory vault for your agents. A shared, structured, markdown knowledge base accessible to all your AI agents via MCP.">
+<title>cairn — Shared graph knowledge vault for your agents</title>
+<meta name="description" content="Shared graph knowledge vault for your agents. Obsidian-like structured markdown notes accessible to all your AI agents via MCP.">
 <meta property="og:title" content="cairn">
-<meta property="og:description" content="Obsidian-like memory vault for your agents. A shared, structured, markdown knowledge base accessible to all your AI agents via MCP.">
+<meta property="og:description" content="Shared graph knowledge vault for your agents. Obsidian-like structured markdown notes accessible to all your AI agents via MCP.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://cairn.place">
 <meta property="og:image" content="https://cairn.place/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="cairn">
-<meta name="twitter:description" content="Obsidian-like memory vault for your agents. A shared, structured, markdown knowledge base accessible to all your AI agents via MCP.">
+<meta name="twitter:description" content="Shared graph knowledge vault for your agents. Obsidian-like structured markdown notes accessible to all your AI agents via MCP.">
 <meta name="twitter:image" content="https://cairn.place/og-image.png">
 <meta name="author" content="Tom McKenzie">
 <link rel="icon" href="/favicon.ico">
