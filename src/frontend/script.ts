@@ -111,37 +111,35 @@ export const SCRIPT = `
   // OAuth login
   function renderLogin() {
     app().innerHTML = \`
-      <div style="text-align:center;padding:4rem 0">
-        <h2 style="margin-bottom:1rem;font-size:2rem;font-weight:700">Welcome to cairn</h2>
-        <p style="color:var(--fg-dim);margin-bottom:2.5rem;font-size:1.1rem">Shared graph knowledge vault for your agents</p>
-        <button class="btn" onclick="window.__startLogin()" style="padding:0.75rem 2.5rem;font-size:1.1rem;margin-bottom:4rem">
-          Sign in with Google
-        </button>
-        
-        <div style="text-align:left; max-width: 600px; margin: 0 auto; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem;">
-          <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">How it works</h3>
-          <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-            <div>
-              <h4 style="color: var(--accent); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                <span style="background: rgba(59, 130, 246, 0.2); color: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold;">1</span>
-                Create a Vault
-              </h4>
-              <p style="color: var(--fg-mutated); font-size: 0.95rem;">Sign in and create a shared workspace for your agents. You'll get a unique MCP endpoint URL.</p>
-            </div>
-            <div>
-              <h4 style="color: var(--accent); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                <span style="background: rgba(59, 130, 246, 0.2); color: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold;">2</span>
-                Connect your AI
-              </h4>
-              <p style="color: var(--fg-mutated); font-size: 0.95rem;">Add the endpoint to Claude Code, Desktop, Cursor, or any MCP-compatible client. Your agents can now read and write to your shared vault.</p>
-            </div>
-            <div>
-              <h4 style="color: var(--accent); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                <span style="background: rgba(59, 130, 246, 0.2); color: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold;">3</span>
-                Share Memory
-              </h4>
-              <p style="color: var(--fg-mutated); font-size: 0.95rem;">All notes are saved as structured Markdown files. Your agents can cross-reference, backlink, and build shared knowledge seamlessly.</p>
-            </div>
+      <div class="login-hero">
+        <h2 class="login-title">cairn</h2>
+        <p class="login-tagline">Shared graph knowledge vault for your agents</p>
+        <div class="cta-group">
+          <button class="btn-primary" onclick="window.__startLogin()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09a6.97 6.97 0 010-4.17V7.07H2.18a11.01 11.01 0 000 9.86l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            Sign in with Google
+          </button>
+          <a class="btn-ghost" href="https://github.com/grrowl/cairn" target="_blank" rel="noopener noreferrer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            GitHub
+          </a>
+        </div>
+        <div class="feature-list">
+          <div class="feature">
+            <span class="dash">&mdash;</span>
+            <div><span class="feature-title">Structured markdown</span> <span class="feature-desc">Obsidian-like notes with frontmatter, wikilinks, and backlinks.</span></div>
+          </div>
+          <div class="feature">
+            <span class="dash">&mdash;</span>
+            <div><span class="feature-title">Shared across agents</span> <span class="feature-desc">Connect Claude, Cursor, or any MCP client to the same vault.</span></div>
+          </div>
+          <div class="feature">
+            <span class="dash">&mdash;</span>
+            <div><span class="feature-title">Full-text search</span> <span class="feature-desc">Search by content, tags, or backlinks. Daily notes with timezone support.</span></div>
+          </div>
+          <div class="feature">
+            <span class="dash">&mdash;</span>
+            <div><span class="feature-title">Self-hosted on Cloudflare</span> <span class="feature-desc">Your data on your Workers. Open source. Export anytime.</span></div>
           </div>
         </div>
       </div>
@@ -280,7 +278,7 @@ export const SCRIPT = `
           <div id="invite-msg"></div>
           
           <div id="members-list" style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
-          <h4 style="font-size: 0.85rem; color: var(--fg-mutated); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em">Current Members</h4>\`;
+          <h4 style="font-size: 0.85rem; color: var(--fg-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em">Current Members</h4>\`;
 
       for (const m of ws.members) {
         html += \`<div class="member-row">
@@ -316,7 +314,7 @@ export const SCRIPT = `
         
         <div class="card" style="border-color: rgba(239, 68, 68, 0.3)">
           <h3 style="color: var(--danger); margin-bottom: 1rem">Danger Zone</h3>
-          <p style="font-size: 0.875rem; color: var(--fg-mutated); margin-bottom: 1rem">
+          <p style="font-size: 0.875rem; color: var(--fg-muted); margin-bottom: 1rem">
             Rebuilding the index may take a while. Deleting the workspace is irreversible.
           </p>
           <div style="display:flex;gap:1rem;">
@@ -349,7 +347,6 @@ export const SCRIPT = `
         const mcpEndpoint = window.location.origin + '/' + workspaceId + '/mcp';
         container.innerHTML = \`
           <div class="empty" style="border: 2px dashed var(--border); border-radius: var(--radius); background: var(--bg-surface);">
-            <div style="font-size: 2rem; margin-bottom: 1rem">🗂️</div>
             <h3 style="color: var(--fg); margin-bottom: 0.5rem">No notes yet</h3>
             <p style="margin-bottom: 1rem">Connect an MCP client to your endpoint to get started.</p>
             <div style="display: flex; flex-direction: column; gap: 0.5rem; text-align: left; max-width: 500px; margin: 0 auto; margin-top: 1rem;">
@@ -366,7 +363,7 @@ export const SCRIPT = `
         const name = escHtml(note.path);
         const date = formatRelativeDate(note.modified);
         html += \`<div class="vault-row" onclick="window.__openFile('\${escAttr(workspaceId)}','\${escAttr(note.path)}')">
-          <svg style="width: 16px; height: 16px; color: var(--accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+          <svg style="width: 16px; height: 16px; color: var(--fg-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
           <span class="vault-name" title="\${escAttr(note.path)}">\${name}</span>
           <span class="vault-date">\${date}</span>
         </div>\`;
@@ -396,10 +393,10 @@ export const SCRIPT = `
       const note = data.note;
       
       let html = \`
-      <div style="background: var(--bg-glass); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden;">
+      <div style="background: var(--bg-surface); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden;">
         <div style="background: var(--bg-surface); padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.75rem;">
-          <svg style="width: 18px; height: 18px; color: var(--fg-mutated);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-          <span style="font-family: 'SF Mono', monospace; font-size: 0.9rem; color: var(--fg);">\${escHtml(note.path)}</span>
+          <svg style="width: 18px; height: 18px; color: var(--fg-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+          <span style="font-family: var(--font-mono); font-size: 0.9rem; color: var(--fg);">\${escHtml(note.path)}</span>
         </div>
         <div style="padding: 1.5rem;">
       \`;
@@ -563,14 +560,14 @@ export const SCRIPT = `
 
   window.__rebuildIndex = async function(wsId) {
     const msg = $('admin-msg');
-    msg.innerHTML = '<span style="color:var(--fg-mutated)">Rebuilding index...</span>';
+    msg.innerHTML = '<span style="color:var(--fg-muted)">Rebuilding index...</span>';
     try {
       await api(\`/api/workspaces/\${wsId}/rebuild-index\`, { method: 'POST' });
       async function poll() {
         try {
           const result = await api(\`/api/workspaces/\${wsId}/rebuild-index\`);
           if (result.status === 'rebuilding') {
-            msg.innerHTML = \`<span style="color:var(--fg-mutated)">Rebuilding... \${result.notes_indexed} notes indexed</span>\`;
+            msg.innerHTML = \`<span style="color:var(--fg-muted)">Rebuilding... \${result.notes_indexed} notes indexed</span>\`;
             setTimeout(poll, 1000);
           } else {
             msg.innerHTML = \`<div class="success">Index rebuilt: \${result.notes_indexed} notes indexed\${result.errors ? \` (\${result.errors} errors)\` : ''}</div>\`;
