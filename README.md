@@ -68,7 +68,7 @@ See [MCP Spec](./docs/mcp-spec.md) for full tool schemas.
 Cairn runs on Cloudflare Workers with R2, KV, and Durable Objects. See the [Architecture docs](./docs/architecture.md) for details.
 
 ```bash
-npm install
+npm ci                  # Node.js 24+
 cp .dev.vars.example .dev.vars  # add Google OAuth credentials
 npm run dev                      # http://localhost:8788
 ```
@@ -79,8 +79,14 @@ See [deployment instructions](#deployment) for production setup.
 
 - **R2** — note content (markdown + YAML frontmatter) and workspace metadata
 - **Durable Objects (SQLite)** — backlinks, search terms, aliases, note metadata indexes
-- **MCP (McpAgent)** — reads/writes R2 directly, sends lightweight metadata to indexes
-- **Google OAuth** — authentication for both MCP clients and the browser UI
+- **MCP (stateless SDK v2)** — supports MCP 2026-07-28 and legacy 2025 clients; reads/writes R2 directly and sends metadata to indexes
+- **OAuth 2.1 + Google OIDC** — S256 PKCE, verified Google identity, CIMD and dynamic client registration for MCP clients and the browser UI
+
+## Checks
+
+`npm run check` runs TypeScript and the isolated Worker/browser integration tests.
+Tests exercise modern discovery, legacy MCP, token refresh from the original OAuth library,
+consent CSRF/replay protection, browser PKCE, and workspace data isolation.
 
 ## Deployment
 

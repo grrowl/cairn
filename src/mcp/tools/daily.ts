@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { readNote, writeNote, patchNote, PatchError } from "../../storage/notes";
 import { serialiseFrontmatter } from "../../storage/frontmatter";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { NoteMetadata, WorkspaceIndex } from "../../storage/workspace-index";
 
 export const dailySchema = {
@@ -29,10 +29,9 @@ export function registerDailyTool(
 	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 	getTimezone: () => string,
 ) {
-	server.tool(
+	server.registerTool(
 		"cairn_daily",
-		"Read or append to a daily note. Creates the note with minimal frontmatter if it doesn't exist. Date defaults to today (in workspace timezone).",
-		dailySchema,
+		{ description: "Read or append to a daily note. Creates the note with minimal frontmatter if it doesn't exist. Date defaults to today (in workspace timezone).", inputSchema: z.object(dailySchema), annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } },
 		async ({ date, op, content, section }) => {
 			const bucket = getBucket();
 			const workspaceId = getWorkspaceId();

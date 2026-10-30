@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { patchNote, PatchError } from "../../storage/notes";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { NoteMetadata, WorkspaceIndex } from "../../storage/workspace-index";
 
 export const patchSchema = {
@@ -17,10 +17,9 @@ export function registerPatchTool(
 	getWorkspaceId: () => string,
 	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
-	server.tool(
+	server.registerTool(
 		"cairn_patch",
-		"Edit a note without rewriting it. Supports append/prepend to the whole note or a specific section, and find-replace. The note must already exist. WikiLinks in new content are automatically indexed.",
-		patchSchema,
+		{ description: "Edit a note without rewriting it. Supports append/prepend to the whole note or a specific section, and find-replace. The note must already exist. WikiLinks in new content are automatically indexed.", inputSchema: z.object(patchSchema), annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false } },
 		async ({ path, op, content, section, find }) => {
 			const bucket = getBucket();
 			const workspaceId = getWorkspaceId();

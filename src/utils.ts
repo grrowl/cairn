@@ -69,7 +69,7 @@ export async function fetchUpstreamAuthToken({
 		method: "POST",
 	});
 	if (!resp.ok) {
-		console.log(await resp.text());
+		console.warn("google_token_exchange_failed", { status: resp.status });
 		return [null, new Response("Failed to fetch access token", { status: 500 })];
 	}
 
@@ -89,6 +89,5 @@ export async function fetchUpstreamAuthToken({
 export type Props = {
 	name: string;
 	email: string;
-	accessToken: string;
-	workspaceId: string;
+	workspaceId?: string;
 };
