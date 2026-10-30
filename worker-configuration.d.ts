@@ -7,6 +7,7 @@ declare namespace Cloudflare {
 		durableNamespaces: "CairnMCP" | "WorkspaceIndex";
 	}
 	interface Env {
+		REDIRECT_LEGACY_DOMAIN?: string;
 		OAUTH_KV: KVNamespace;
 		BUCKET: R2Bucket;
 		GOOGLE_CLIENT_ID: string;

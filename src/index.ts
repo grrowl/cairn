@@ -1,4 +1,5 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
+import { legacyRedirect } from "./canonical-url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { GoogleHandler } from "./google-handler";
@@ -141,6 +142,10 @@ const RESERVED_PATHS = new Set([
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+		if (env.REDIRECT_LEGACY_DOMAIN === "true") {
+			const redirect = legacyRedirect(request.url);
+			if (redirect) return redirect;
+		}
 		const url = new URL(request.url);
 
 		// Match /{workspaceId}/mcp paths and rewrite to /mcp + header

@@ -2,7 +2,7 @@
   "mcpServers": {
     "cairn": {
       "type": "http",
-      "url": "https://cairn.place/cairn/mcp"
+      "url": "https://cairn.chillidonut.com/private/mcp"
     }
   }
 }

@@ -4,13 +4,13 @@
 
 Obsidian-like structured, back-linked markdown notes — accessible to all your AI agents via [MCP](https://modelcontextprotocol.io). WikiLinks, backlinks, daily notes, full-text search, and a sensible minimal tool interface designed to be a shareable knowledge vault across Claude, Cursor, and any MCP client.
 
-**Try it now at [cairn.place](https://cairn.place)**
+**Try it now at [cairn.chillidonut.com](https://cairn.chillidonut.com)**
 
 <!-- screenshot or demo gif here -->
 
 ## How it works
 
-1. **Sign in** at [cairn.place](https://cairn.place) and create a workspace
+1. **Sign in** at [cairn.chillidonut.com](https://cairn.chillidonut.com) and create a workspace
 2. **Connect your agents** — add the MCP endpoint to Claude Desktop, Cursor, Claude Code, or any MCP client
 3. **Your agents share a brain** — notes, entities, meeting logs, and project context persist across conversations and tools
 
@@ -18,7 +18,7 @@ Obsidian-like structured, back-linked markdown notes — accessible to all your 
 {
   "mcpServers": {
     "cairn": {
-      "url": "https://cairn.place/<workspace-id>/mcp"
+      "url": "https://cairn.chillidonut.com/<workspace-id>/mcp"
     }
   }
 }
@@ -30,7 +30,7 @@ Obsidian-like structured, back-linked markdown notes — accessible to all your 
 {
   "mcpServers": {
     "cairn": {
-      "url": "https://cairn.place/mcp"
+      "url": "https://cairn.chillidonut.com/mcp"
     }
   }
 }

@@ -11,12 +11,12 @@ export const FRONTEND_HTML = `<!DOCTYPE html>
 <meta property="og:title" content="cairn">
 <meta property="og:description" content="Shared graph knowledge vault for your agents. Obsidian-like structured markdown notes accessible to all your AI agents via MCP.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://cairn.place">
-<meta property="og:image" content="https://cairn.place/og-image.png">
+<meta property="og:url" content="https://cairn.chillidonut.com">
+<meta property="og:image" content="https://cairn.chillidonut.com/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="cairn">
 <meta name="twitter:description" content="Shared graph knowledge vault for your agents. Obsidian-like structured markdown notes accessible to all your AI agents via MCP.">
-<meta name="twitter:image" content="https://cairn.place/og-image.png">
+<meta name="twitter:image" content="https://cairn.chillidonut.com/og-image.png">
 <meta name="author" content="Tom McKenzie">
 <link rel="icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">

@@ -1,5 +1,23 @@
 # Cairn Deployment Guide
 
+## Domain migration (October 2026)
+
+The existing `cairn` Worker now serves `cairn.chillidonut.com`, using the same
+Google credentials, R2 bucket, OAuth KV, and Durable Object namespaces. Existing
+vaults are preserved. The new `private` workspace is owned by `tom@chillidonut.com`
+and uses normal workspace membership checks; Google sign-in has no email-domain
+restriction. Its MCP endpoint is `https://cairn.chillidonut.com/private/mcp`.
+
+`https://cairn.chillidonut.com/callback` is registered on the existing Google web
+OAuth client (Google Cloud project `cairn-place`, number `857920827032`). Sign-in
+on the new domain was verified in Safari on October 30, 2026. Existing local and
+old-domain callback entries remain registered.
+
+`REDIRECT_LEGACY_DOMAIN = "true"` in the Wrangler `vars` configuration enables
+permanent redirects from the old domain, preserving paths and query strings.
+Reconnect MCP clients using the new endpoint rather than relying on cross-origin
+redirects. The old domain can expire without affecting the new domain's login.
+
 ## Prerequisites
 
 - Cloudflare account with **Workers Paid plan** (required for Durable Objects)

@@ -3,6 +3,9 @@
   "name": "cairn",
   "main": "src/index.ts",
   "compatibility_date": "2025-03-10",
+  "vars": {
+    "REDIRECT_LEGACY_DOMAIN": "true"
+  },
   "compatibility_flags": [
     "nodejs_compat"
   ],
@@ -45,6 +48,10 @@
     }
   ],
   "routes": [
+    {
+      "pattern": "cairn.chillidonut.com",
+      "custom_domain": true
+    },
     {
       "pattern": "cairn.place",
       "custom_domain": true
