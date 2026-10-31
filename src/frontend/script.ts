@@ -56,35 +56,43 @@ export const SCRIPT = `
 
     // Check for OAuth callback
     const params = new URLSearchParams(window.location.search);
-    if (params.has('code')) {
-      const code = params.get('code');
-      const clientId = localStorage.getItem('cairn_client_id');
-      if (clientId) {
-        try {
-          const res = await fetch('/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              grant_type: 'authorization_code',
-              code,
-              client_id: clientId,
-              redirect_uri: window.location.origin + '/',
-            }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            setToken(data.access_token);
-          }
-        } catch (e) {
-          console.error('Token exchange failed:', e);
+    if (params.has('code') || params.has('error')) {
+      let returnTo = '#/workspaces';
+      try {
+        const flow = JSON.parse(sessionStorage.getItem('cairn_oauth') || 'null');
+        if (!flow || params.get('state') !== flow.state || Date.now() - flow.createdAt > 600000) {
+          throw new Error('This sign-in expired or started in another tab. Please sign in again.');
         }
+        if (params.get('iss') !== window.location.origin) throw new Error('Unexpected sign-in provider.');
+        if (params.has('error')) throw new Error(params.get('error_description') || 'Sign-in was declined.');
+        const clientId = localStorage.getItem('cairn_client_id');
+        if (!clientId) throw new Error('Please start sign-in again.');
+        const res = await fetch('/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: params.get('code'),
+            client_id: clientId,
+            code_verifier: flow.verifier,
+            resource: window.location.origin,
+            redirect_uri: window.location.origin + '/',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.access_token) throw new Error(data.error_description || 'Sign-in could not be completed.');
+        setToken(data.access_token);
+        if (flow.returnTo && flow.returnTo.startsWith('#/workspaces')) returnTo = flow.returnTo;
+      } catch (error) {
+        setToken(null);
+        window.history.replaceState({}, '', window.location.pathname + '#/login');
+        renderLogin();
+        app().insertAdjacentHTML('beforeend', '<p class="error">' + escHtml(error.message) + '</p>');
+        return;
+      } finally {
+        sessionStorage.removeItem('cairn_oauth');
       }
-      window.history.replaceState({}, '', window.location.pathname + '#/workspaces');
-      return router();
-    }
-    if (params.has('access_token')) {
-      setToken(params.get('access_token'));
-      window.history.replaceState({}, '', window.location.pathname + '#/workspaces');
+      window.history.replaceState({}, '', window.location.pathname + returnTo);
       return router();
     }
 
@@ -164,13 +172,25 @@ export const SCRIPT = `
     return data.client_id;
   }
 
+  function base64Url(bytes) {
+    return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+  }
+
   window.__startLogin = async function() {
     try {
       const clientId = await getOrRegisterClientId();
-      const redirectUri = window.location.origin + '/';
-      window.location.href = \`/authorize?response_type=code&client_id=\${encodeURIComponent(clientId)}&redirect_uri=\${encodeURIComponent(redirectUri)}&scope=openid+email+profile\`;
+      const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+      const challenge = base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+      const state = crypto.randomUUID();
+      sessionStorage.setItem('cairn_oauth', JSON.stringify({ state, verifier, createdAt: Date.now(), returnTo: window.location.hash }));
+      const query = new URLSearchParams({
+        response_type: 'code', client_id: clientId, redirect_uri: window.location.origin + '/',
+        scope: 'openid email profile', resource: window.location.origin,
+        code_challenge: challenge, code_challenge_method: 'S256', state,
+      });
+      window.location.href = '/authorize?' + query;
     } catch (e) {
-      app().innerHTML = \`<div class="error">Login failed: \${escHtml(e.message)}</div>\`;
+      app().innerHTML = '<div class="error">Login failed: ' + escHtml(e.message) + '</div>';
     }
   };
 

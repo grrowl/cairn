@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { WorkspaceIndex } from "../../storage/workspace-index";
 
 export const listSchema = {
@@ -14,10 +14,9 @@ export function registerListTool(
 	server: McpServer,
 	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
-	server.tool(
+	server.registerTool(
 		"cairn_list",
-		"List notes under a path prefix. Returns paths, titles, and modification dates. No content. Supports pagination.",
-		listSchema,
+		{ description: "List notes under a path prefix. Returns paths, titles, and modification dates. No content. Supports pagination.", inputSchema: z.object(listSchema), annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } },
 		async ({ path_prefix, recursive, sort, limit, cursor }) => {
 			const index = getIndex();
 			const result = await index.listNotes({

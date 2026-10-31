@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { WorkspaceIndex } from "../../storage/workspace-index";
 import { readNote } from "../../storage/notes";
 
@@ -41,10 +41,9 @@ export function registerSearchTool(
 	getBucket: () => R2Bucket,
 	getWorkspaceId: () => string,
 ) {
-	server.tool(
+	server.registerTool(
 		"cairn_search",
-		"Search notes by content, tags, or backlinks. Returns matching note paths with context snippets. At least one search parameter is required.",
-		searchSchema,
+		{ description: "Search notes by content, tags, or backlinks. Returns matching note paths with context snippets. At least one search parameter is required.", inputSchema: z.object(searchSchema), annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } },
 		async ({ query, tags, path_prefix, backlinks_to, modified_since, limit, cursor }) => {
 			// Validate at least one search param
 			if (!query && (!tags || tags.length === 0) && !path_prefix && !backlinks_to && !modified_since) {

@@ -1,28 +1,35 @@
 {
-	"name": "cairn",
-	"version": "0.1.0",
-	"description": "Shared graph knowledge vault for your agents. Obsidian-like structured markdown notes via MCP.",
-	"private": true,
-	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
-		"start": "wrangler dev",
-		"cf-typegen": "wrangler types",
-		"type-check": "tsc --noEmit"
-	},
-	"dependencies": {
-		"@cloudflare/workers-oauth-provider": "^0.2.3",
-		"agents": "^0.5.0",
-		"fflate": "^0.8.2",
-		"hono": "^4.12.0",
-		"js-yaml": "^4.1.1",
-		"just-pick": "^4.2.0",
-		"zod": "^4.3.6"
-	},
-	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20260227.0",
-		"@types/js-yaml": "^4.0.9",
-		"typescript": "5.9.3",
-		"wrangler": "^4.67.0"
-	}
+  "name": "cairn",
+  "version": "0.2.0",
+  "description": "Shared graph knowledge vault for your agents. Obsidian-like structured markdown notes via MCP.",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "cf-typegen": "wrangler types",
+    "type-check": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "check": "npm run type-check && npm test"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.2.4",
+    "@modelcontextprotocol/server": "2.4.0",
+    "agents": "0.32.0",
+    "fflate": "^0.8.3",
+    "hono": "^4.13.14",
+    "js-yaml": "^5.5.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "miniflare": "5.20261023.3-beta",
+    "typescript": "^7.0.2",
+    "workers-oauth-provider-legacy": "npm:@cloudflare/workers-oauth-provider@0.2.3",
+    "wrangler": "^4.156.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
 }

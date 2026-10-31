@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { writeNote } from "../../storage/notes";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { NoteMetadata, WorkspaceIndex } from "../../storage/workspace-index";
 
 export const writeSchema = {
@@ -16,10 +16,9 @@ export function registerWriteTool(
 	getWorkspaceId: () => string,
 	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
-	server.tool(
+	server.registerTool(
 		"cairn_write",
-		"Create or overwrite a note. Frontmatter in content is parsed and merged with explicit params. WikiLinks in content are automatically indexed. Aliases allow this note to be found when other notes link using those names.",
-		writeSchema,
+		{ description: "Create or overwrite a note. Frontmatter in content is parsed and merged with explicit params. WikiLinks in content are automatically indexed. Aliases allow this note to be found when other notes link using those names.", inputSchema: z.object(writeSchema), annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false } },
 		async ({ path, content, tags, aliases }) => {
 			const bucket = getBucket();
 			const workspaceId = getWorkspaceId();

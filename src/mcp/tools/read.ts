@@ -2,7 +2,7 @@ import { z } from "zod";
 import { readNote } from "../../storage/notes";
 import { extractSection } from "../../storage/markdown";
 import { serialiseFrontmatter } from "../../storage/frontmatter";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { WorkspaceIndex } from "../../storage/workspace-index";
 
 export const readSchema = {
@@ -17,10 +17,9 @@ export function registerReadTool(
 	getWorkspaceId: () => string,
 	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
-	server.tool(
+	server.registerTool(
 		"cairn_read",
-		"Read a note. Returns frontmatter metadata and markdown body. Use section to extract a specific heading. Use metadata_only to get just frontmatter and backlinks without the body.",
-		readSchema,
+		{ description: "Read a note. Returns frontmatter metadata and markdown body. Use section to extract a specific heading. Use metadata_only to get just frontmatter and backlinks without the body.", inputSchema: z.object(readSchema), annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } },
 		async ({ path, section, metadata_only }) => {
 			const bucket = getBucket();
 			const workspaceId = getWorkspaceId();

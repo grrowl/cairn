@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { deleteNote } from "../../storage/notes";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { WorkspaceIndex } from "../../storage/workspace-index";
 
 export const deleteSchema = {
@@ -13,10 +13,9 @@ export function registerDeleteTool(
 	getWorkspaceId: () => string,
 	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
-	server.tool(
+	server.registerTool(
 		"cairn_delete",
-		"Delete a note. Also removes this note from the backlink index. Does not modify the content of other notes that reference this one.",
-		deleteSchema,
+		{ description: "Delete a note. Also removes this note from the backlink index. Does not modify the content of other notes that reference this one.", inputSchema: z.object(deleteSchema), annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false } },
 		async ({ path }) => {
 			const bucket = getBucket();
 			const workspaceId = getWorkspaceId();

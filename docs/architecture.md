@@ -78,11 +78,23 @@ Single Cloudflare Worker handles all routes:
 /{workspaceId}/mcp              → MCP server (POST, streamable HTTP)
 ```
 
-Routing is path-based. The `/{workspaceId}/mcp` pattern is matched **after** OAuth and static routes. Workspace IDs cannot collide with reserved paths: `auth`, `api`, `authorize`, `callback`, `token`, `.well-known`.
+Routing is path-based. Workspace MCP routes are declared to OAuth using their original URL, then matched again after token validation. Workspace IDs cannot collide with reserved paths: `auth`, `api`, `authorize`, `callback`, `token`, `.well-known`.
 
 The worker is wrapped in `OAuthProvider` from `workers-oauth-provider`, which intercepts OAuth-related paths before they reach our router.
 
 ### 2. Auth Layer
+
+Cairn is one OAuth protected resource: its canonical application origin, e.g.
+`https://cairn.chillidonut.com`. The browser API and workspace MCP endpoints share
+that application grant; membership is independently checked for every workspace
+request. RFC 9728 protected-resource metadata advertises the canonical resource,
+and RFC 8414 authorization-server metadata advertises S256 PKCE, CIMD and DCR.
+
+The provider owns single-use, browser-bound consent/upstream transactions. Google
+userinfo must return a verified email; upstream Google access tokens are not kept
+in Cairn's token props. OAuth error logs record codes and internal reason codes,
+never bearer tokens, authorization codes or note content.
+
 
 **How `workers-oauth-provider` works:**
 
@@ -105,7 +117,7 @@ We provide a Google OAuth handler that implements the authorize/callback flow wi
 8. Client uses bearer token on all subsequent MCP requests
 
 **Browser frontend flow:**
-The admin SPA uses the same OAuth flow. It acts as an OAuth client to the worker, receiving a bearer token that it stores in memory and includes on REST API calls. No separate session/cookie mechanism.
+The admin SPA uses the same OAuth flow. It acts as an OAuth client to the worker, using S256 PKCE plus state and issuer validation, and receiving a bearer token that it stores in memory and tab-scoped session storage and includes on REST API calls. No separate session/cookie mechanism.
 
 **Workspace authorization (every MCP + API request):**
 1. `workers-oauth-provider` validates the bearer token and provides user identity
@@ -117,25 +129,27 @@ The admin SPA uses the same OAuth flow. It acts as an OAuth client to the worker
 **Secrets (wrangler secrets / env vars):**
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `COOKIE_ENCRYPTION_KEY` — used by `workers-oauth-provider` for cookie encryption
+- `COOKIE_ENCRYPTION_KEY` — used to sign remembered OAuth consent
 - `ADMIN_EMAIL` — platform admin email
 
 **KV namespace:**
 - `OAUTH_KV` — used by `workers-oauth-provider` for token storage. We don't interact with this directly.
 
-### 3. MCP Server (CairnMCP)
+### 3. Stateless MCP server
 
-Uses `McpAgent` from `agents/mcp` (Cloudflare Agents SDK) with `McpServer` from `@modelcontextprotocol/sdk`.
+`src/mcp/server.ts` creates a fresh SDK v2 `McpServer` for each request through
+`createMcpHandler` from `agents/mcp/server`. It handles MCP `2026-07-28` without
+initialization or sessions, and retains compatibility with the 2025-era handshake.
+All eight tools use `registerTool`, explicit Zod schemas and tool annotations.
 
-`CairnMCP` extends `McpAgent<Env, State, Props>` where `Props` includes the authenticated user's email and the workspace ID. Tools are registered in `init()` and have access to:
+OAuth validates the original public URL. The router extracts the workspace from
+that URL, checks membership, and gives the server immutable workspace-specific
+closures for the R2 bucket, index, workspace ID and timezone. It never trusts a
+client-supplied workspace header and never rewrites a workspace path before auth.
 
-- `this.env.BUCKET` — R2 bucket for direct note I/O
-- `this.env.WORKSPACE_INDEX` — DO namespace for index operations
-- `this.props` — `{ email, workspaceId }` from auth context
-
-Each incoming MCP request goes through auth middleware, which populates props before the agent handles the request.
-
-The MCP server is stateless between requests — all persistent state lives in R2 (notes) and the WorkspaceIndex DO (indexes).
+Notes and indexes remain durable. Only transport state is stateless.
+`CairnMCP`/`MCP_OBJECT` are retained as an unused historical namespace so deployment
+never deletes existing Durable Objects; `WorkspaceIndex` remains active.
 
 ### 4. Storage Layer
 

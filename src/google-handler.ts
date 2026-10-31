@@ -1,237 +1,105 @@
-import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import { AuthorizationError, CimdFetchError, authorizationErrorRedirect, type AuthRequest, type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
+import { FRONTEND_HTML } from "./frontend/html";
+import { STYLES } from "./frontend/styles";
 import { fetchUpstreamAuthToken, getUpstreamAuthorizeUrl, type Props } from "./utils";
-import {
-	addApprovedClient,
-	bindStateToSession,
-	createOAuthState,
-	generateCSRFProtection,
-	isClientApproved,
-	OAuthError,
-	renderApprovalDialog,
-	validateCSRFToken,
-	validateOAuthState,
-} from "./workers-oauth-utils";
 
 const app = new Hono<{ Bindings: Env & { OAUTH_PROVIDER: OAuthHelpers } }>();
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+
+app.onError((error, c) => {
+  if (error instanceof AuthorizationError) return c.text(error.description, 400);
+  if (error instanceof CimdFetchError) return c.text("The connecting app's identity could not be verified. Please try again.", 502);
+  console.error("authentication_failed", { name: error.name, reason: error.message.slice(0, 300) });
+  return c.text("Sign-in could not be completed. Please start again.", 500);
+});
+
+async function signInWithGoogle(request: Request, env: Env & { OAUTH_PROVIDER: OAuthHelpers }, authRequest: AuthRequest, headers?: Headers) {
+  const upstream = await env.OAUTH_PROVIDER.beginUpstream(authRequest, { headers });
+  const origin = env.BASE_URL || new URL(request.url).origin;
+  upstream.headers.set("Location", getUpstreamAuthorizeUrl({
+    clientId: env.GOOGLE_CLIENT_ID,
+    redirectUri: origin + "/callback",
+    scope: "openid email profile",
+    state: upstream.state,
+    upstreamUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+  }));
+  return new Response(null, { status: 302, headers: upstream.headers });
+}
 
 app.get("/authorize", async (c) => {
-	const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
-	const { clientId } = oauthReqInfo;
-	if (!clientId) {
-		return c.text("Invalid request", 400);
-	}
-
-	// Check if client is already approved
-	if (await isClientApproved(c.req.raw, clientId, c.env.COOKIE_ENCRYPTION_KEY)) {
-		// Skip approval dialog but still create secure state and bind to session
-		const { stateToken } = await createOAuthState(oauthReqInfo, c.env.OAUTH_KV);
-		const { setCookie: sessionBindingCookie } = await bindStateToSession(stateToken);
-		return redirectToGoogle(c.req.raw, c.env, stateToken, {
-			"Set-Cookie": sessionBindingCookie,
-		});
-	}
-
-	// Generate CSRF protection for the approval form
-	const { token: csrfToken, setCookie } = generateCSRFProtection();
-
-	return renderApprovalDialog(c.req.raw, {
-		client: await c.env.OAUTH_PROVIDER.lookupClient(clientId),
-		csrfToken,
-		server: {
-			description: "Shared graph knowledge vault for your agents.",
-			name: "cairn",
-		},
-		setCookie,
-		state: { oauthReqInfo },
-	});
+  const oauth = c.env.OAUTH_PROVIDER;
+  let request: AuthRequest;
+  try {
+    request = await oauth.parseAuthRequest(c.req.raw);
+  } catch (error) {
+    if (error instanceof AuthorizationError && error.redirectTo) return Response.redirect(error.redirectTo, 302);
+    throw error;
+  }
+  if (await oauth.isConsentRemembered(c.req.raw, request, { secret: c.env.COOKIE_ENCRYPTION_KEY })) {
+    return signInWithGoogle(c.req.raw, c.env, request);
+  }
+  const details = await oauth.describeConsent(request);
+  const consent = await oauth.beginConsent(request);
+  consent.headers.set("Content-Type", "text/html; charset=utf-8");
+  const source = details.clientDomain
+    ? "Published by " + escapeHtml(details.clientDomain)
+    : "This app registered itself; its name is not verified.";
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect to Cairn</title><style>${STYLES}</style></head>
+<body><main class="container"><h1>Connect to Cairn</h1><h2>${escapeHtml(details.clientName)} is requesting access</h2>
+<p>${source}</p><p>Allow this app to read and edit Cairn workspaces you belong to. Access will be sent to <strong>${escapeHtml(details.redirectHost)}</strong>.</p>
+${details.redirectIsLoopback ? "<p>This connects an app on your computer. Continue only if you just started signing in from it.</p>" : ""}
+<p>Requested permissions: ${escapeHtml(details.scope.join(", ") || "Cairn workspace access")}</p>
+<form method="post" action="/authorize"><input type="hidden" name="handle" value="${escapeHtml(consent.handle)}">
+<button class="btn-primary" name="decision" value="approve">Approve</button> <button class="btn-outline" name="decision" value="deny">Cancel</button></form></main></body></html>`, { headers: consent.headers });
 });
 
 app.post("/authorize", async (c) => {
-	try {
-		// Read form data once
-		const formData = await c.req.raw.formData();
-
-		// Validate CSRF token
-		validateCSRFToken(formData, c.req.raw);
-
-		// Extract state from form data
-		const encodedState = formData.get("state");
-		if (!encodedState || typeof encodedState !== "string") {
-			return c.text("Missing state in form data", 400);
-		}
-
-		let state: { oauthReqInfo?: AuthRequest };
-		try {
-			state = JSON.parse(atob(encodedState));
-		} catch (_e) {
-			return c.text("Invalid state data", 400);
-		}
-
-		if (!state.oauthReqInfo || !state.oauthReqInfo.clientId) {
-			return c.text("Invalid request", 400);
-		}
-
-		// Add client to approved list
-		const approvedClientCookie = await addApprovedClient(
-			c.req.raw,
-			state.oauthReqInfo.clientId,
-			c.env.COOKIE_ENCRYPTION_KEY,
-		);
-
-		// Create OAuth state and bind it to this user's session
-		const { stateToken } = await createOAuthState(state.oauthReqInfo, c.env.OAUTH_KV);
-		const { setCookie: sessionBindingCookie } = await bindStateToSession(stateToken);
-
-		// Set both cookies: approved client list + session binding
-		const headers = new Headers();
-		headers.append("Set-Cookie", approvedClientCookie);
-		headers.append("Set-Cookie", sessionBindingCookie);
-
-		return redirectToGoogle(c.req.raw, c.env, stateToken, Object.fromEntries(headers));
-	} catch (error: any) {
-		console.error("POST /authorize error:", error);
-		if (error instanceof OAuthError) {
-			return error.toResponse();
-		}
-		// Unexpected non-OAuth error
-		return c.text(`Internal server error: ${error.message}`, 500);
-	}
+  const form = await c.req.formData();
+  const handle = String(form.get("handle") || "");
+  if (form.get("decision") !== "approve") {
+    const denied = await c.env.OAUTH_PROVIDER.denyConsent(c.req.raw, handle);
+    return new Response(null, { status: 302, headers: denied.headers });
+  }
+  const approved = await c.env.OAUTH_PROVIDER.approveConsent(c.req.raw, handle, {
+    remember: { secret: c.env.COOKIE_ENCRYPTION_KEY },
+  });
+  return signInWithGoogle(c.req.raw, c.env, approved.request, approved.headers);
 });
 
-async function redirectToGoogle(
-	request: Request,
-	env: Env,
-	stateToken: string,
-	headers: Record<string, string> = {},
-) {
-	// Use BASE_URL if set (local dev), otherwise derive from request
-	const origin = env.BASE_URL || new URL(request.url).origin;
-	const authorizeRedirectUri = `${origin}/callback`;
-
-	return new Response(null, {
-		headers: {
-			...headers,
-			location: getUpstreamAuthorizeUrl({
-				clientId: env.GOOGLE_CLIENT_ID,
-				redirectUri: authorizeRedirectUri,
-				scope: "email profile",
-				state: stateToken,
-				upstreamUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-			}),
-		},
-		status: 302,
-	});
-}
-
-/**
- * OAuth Callback Endpoint
- *
- * This route handles the callback from Google after user authentication.
- * It exchanges the temporary code for an access token, then stores some
- * user metadata & the auth token as part of the 'props' on the token passed
- * down to the client. It ends by redirecting the client back to _its_ callback URL
- *
- * SECURITY: This endpoint validates that the state parameter from Google
- * matches both:
- * 1. A valid state token in KV (proves it was created by our server)
- * 2. The __Host-CONSENTED_STATE cookie (proves THIS browser consented to it)
- *
- * This prevents CSRF attacks where an attacker's state token is injected
- * into a victim's OAuth flow.
- */
 app.get("/callback", async (c) => {
-	// Validate OAuth state with session binding
-	// This checks both KV storage AND the session cookie
-	let oauthReqInfo: AuthRequest;
-	let clearSessionCookie: string;
-
-	try {
-		const result = await validateOAuthState(c.req.raw, c.env.OAUTH_KV);
-		oauthReqInfo = result.oauthReqInfo;
-		clearSessionCookie = result.clearCookie;
-	} catch (error: any) {
-		if (error instanceof OAuthError) {
-			return error.toResponse();
-		}
-		// Unexpected non-OAuth error
-		return c.text("Internal server error", 500);
-	}
-
-	if (!oauthReqInfo.clientId) {
-		return c.text("Invalid OAuth request data", 400);
-	}
-
-	// Exchange the code for an access token
-	const code = c.req.query("code");
-	if (!code) {
-		return c.text("Missing code", 400);
-	}
-
-	// Use BASE_URL if set (local dev), otherwise derive from request
-	const origin = c.env.BASE_URL || new URL(c.req.url).origin;
-	const callbackRedirectUri = `${origin}/callback`;
-
-	const [accessToken, googleErrResponse] = await fetchUpstreamAuthToken({
-		clientId: c.env.GOOGLE_CLIENT_ID,
-		clientSecret: c.env.GOOGLE_CLIENT_SECRET,
-		code,
-		grantType: "authorization_code",
-		redirectUri: callbackRedirectUri,
-		upstreamUrl: "https://accounts.google.com/o/oauth2/token",
-	});
-	if (googleErrResponse) {
-		return googleErrResponse;
-	}
-
-	// Fetch the user info from Google
-	const userResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-		headers: {
-			Authorization: `Bearer ${accessToken}`,
-		},
-	});
-	if (!userResponse.ok) {
-		return c.text(`Failed to fetch user info: ${await userResponse.text()}`, 500);
-	}
-
-	const { id, name, email } = (await userResponse.json()) as {
-		id: string;
-		name: string;
-		email: string;
-	};
-
-	// Return back to the MCP client a new token
-	const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
-		metadata: {
-			label: name,
-		},
-		props: {
-			accessToken,
-			email,
-			name,
-		} as Props,
-		request: oauthReqInfo,
-		scope: oauthReqInfo.scope,
-		userId: id,
-	});
-
-	// Clear the session binding cookie (one-time use) by creating response with headers
-	const headers = new Headers({ Location: redirectTo });
-	if (clearSessionCookie) {
-		headers.set("Set-Cookie", clearSessionCookie);
-	}
-
-	return new Response(null, {
-		status: 302,
-		headers,
-	});
+  const upstream = await c.env.OAUTH_PROVIDER.finishUpstream(c.req.raw);
+  if (c.req.query("error")) {
+    upstream.headers.set("Location", authorizationErrorRedirect(upstream.request, "access_denied"));
+    return new Response(null, { status: 302, headers: upstream.headers });
+  }
+  const origin = c.env.BASE_URL || new URL(c.req.url).origin;
+  const [accessToken, errorResponse] = await fetchUpstreamAuthToken({
+    clientId: c.env.GOOGLE_CLIENT_ID,
+    clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+    code: c.req.query("code"),
+    grantType: "authorization_code",
+    redirectUri: origin + "/callback",
+    upstreamUrl: "https://oauth2.googleapis.com/token",
+  });
+  if (errorResponse) return errorResponse;
+  const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: { Authorization: "Bearer " + accessToken },
+  });
+  if (!response.ok) return c.text("Google could not verify your account. Please start again.", 502);
+  const user = await response.json<{ sub?: string; name?: string; email?: string; email_verified?: boolean }>();
+  if (!user.sub || !user.email || user.email_verified !== true) return c.text("A verified Google email address is required.", 403);
+  const props: Props = { email: user.email, name: user.name || user.email };
+  const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
+    metadata: { label: props.name },
+    props,
+    request: upstream.request,
+    scope: upstream.request.scope,
+    userId: user.sub,
+  });
+  upstream.headers.set("Location", redirectTo);
+  return new Response(null, { status: 302, headers: upstream.headers });
 });
 
-// Serve the admin frontend SPA
-import { FRONTEND_HTML } from "./frontend/html";
-
-app.get("/", (c) => {
-	return c.html(FRONTEND_HTML);
-});
-
+app.get("/", (c) => c.html(FRONTEND_HTML));
 export { app as GoogleHandler };

@@ -1,166 +1,88 @@
-import OAuthProvider from "@cloudflare/workers-oauth-provider";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { McpAgent } from "agents/mcp";
+import { DurableObject } from "cloudflare:workers";
+import OAuthProvider, { type OAuthHelpers, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import { GoogleHandler } from "./google-handler";
-import type { Props } from "./utils";
-import { registerReadTool } from "./mcp/tools/read";
-import { registerWriteTool } from "./mcp/tools/write";
-import { registerListTool } from "./mcp/tools/list";
-import { registerDailyTool } from "./mcp/tools/daily";
-import { registerPatchTool } from "./mcp/tools/patch";
-import { registerDeleteTool } from "./mcp/tools/delete";
-import { registerSearchTool } from "./mcp/tools/search";
-import { registerLinksTool } from "./mcp/tools/links";
+import { legacyRedirect } from "./canonical-url";
+import { serveMcp } from "./mcp/server";
 import { workspaceRoutes } from "./workspaces/routes";
-import { getWorkspaceMetadata, checkMembership } from "./workspaces/membership";
-import type { WorkspaceIndex } from "./storage/workspace-index";
+import { checkMembership, getWorkspaceMetadata } from "./workspaces/membership";
+import type { Props } from "./utils";
 
 export { WorkspaceIndex } from "./storage/workspace-index";
 
-export class CairnMCP extends McpAgent<Env, Record<string, never>, Props> {
-	server = new McpServer({
-		name: "Cairn",
-		version: "0.1.0",
-	});
+// Retain the historical namespace without deleting stored objects. New MCP
+// connections are stateless; durable workspace indexes remain in use.
+export class CairnMCP extends DurableObject<Env> {}
 
-	private getWorkspaceIndex(): DurableObjectStub<WorkspaceIndex> {
-		const workspaceId = this.props?.workspaceId || "default";
-		const id = this.env.WORKSPACE_INDEX.idFromName(workspaceId);
-		return this.env.WORKSPACE_INDEX.get(id);
-	}
-
-	async init() {
-		const getBucket = () => this.env.BUCKET;
-		const getWorkspaceId = () => this.props?.workspaceId || "default";
-		const getIndex = () => this.getWorkspaceIndex();
-		// Timezone: load from workspace metadata, fallback to UTC
-		let cachedTimezone = "Australia/Melbourne";
-		const workspaceId = getWorkspaceId();
-		if (workspaceId !== "default") {
-			try {
-				const ws = await getWorkspaceMetadata(this.env.BUCKET, workspaceId);
-				if (ws?.settings?.timezone) {
-					cachedTimezone = ws.settings.timezone;
-				}
-			} catch {}
-		}
-		const getTimezone = () => cachedTimezone;
-
-		// Register all 8 MCP tools
-		registerReadTool(this.server, getBucket, getWorkspaceId, getIndex);
-		registerWriteTool(this.server, getBucket, getWorkspaceId, getIndex);
-		registerListTool(this.server, getIndex);
-		registerDailyTool(this.server, getBucket, getWorkspaceId, getIndex, getTimezone);
-		registerPatchTool(this.server, getBucket, getWorkspaceId, getIndex);
-		registerDeleteTool(this.server, getBucket, getWorkspaceId, getIndex);
-		registerSearchTool(this.server, getIndex, getBucket, getWorkspaceId);
-		registerLinksTool(this.server, getIndex);
-	}
+export function mcpWorkspace(pathname: string): string | undefined {
+  if (pathname === "/mcp") return "default";
+  return pathname.match(/^\/([a-z0-9][a-z0-9_-]*)\/mcp$/)?.[1];
 }
 
-// CairnMCP serve handler for MCP requests
-const mcpServe = CairnMCP.serve("/mcp");
-
-// Combined API handler: routes both MCP and REST API requests.
-// Both go through OAuthProvider token validation.
 const apiHandler = {
-	async fetch(request: Request, env: Env, ctx: any) {
-		const url = new URL(request.url);
-		const props = ctx.props as Props | undefined;
-
-		if (url.pathname.startsWith("/mcp")) {
-			// MCP request — inject workspaceId from header
-			const workspaceId = request.headers.get("X-Workspace-Id") || "default";
-			if (props) {
-				props.workspaceId = workspaceId;
-			}
-
-			// Membership check for MCP requests
-			if (workspaceId !== "default") {
-				const workspace = await getWorkspaceMetadata(env.BUCKET, workspaceId);
-				if (!workspace) {
-					return new Response(JSON.stringify({ error: "Workspace not found" }), {
-						status: 404,
-						headers: { "Content-Type": "application/json" },
-					});
-				}
-				const email = props?.email || "";
-				const { authorized } = checkMembership(workspace, email, env.ADMIN_EMAIL);
-				if (!authorized) {
-					return new Response(JSON.stringify({ error: "Not a member of this workspace" }), {
-						status: 403,
-						headers: { "Content-Type": "application/json" },
-					});
-				}
-			}
-
-			return mcpServe.fetch(request, env, ctx);
-		}
-
-		if (url.pathname.startsWith("/api/")) {
-			// REST API request — inject auth context into Hono middleware
-			const email = props?.email || "";
-			const name = props?.name || "";
-
-			// Clone request and add auth context via headers for Hono middleware
-			const apiRequest = new Request(request.url, request);
-
-			// Use Hono's middleware to inject auth context
-			const honoApp = workspaceRoutes;
-			// Set auth context via a custom mechanism
-			const response = await honoApp.fetch(
-				apiRequest,
-				{ ...env, __auth: { email, name } } as any,
-				ctx,
-			);
-			return response;
-		}
-
-		return new Response("Not found", { status: 404 });
-	},
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(request.url);
+    const props = ctx.props as Props | undefined;
+    if (!props?.email) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    const workspaceId = mcpWorkspace(url.pathname);
+    if (workspaceId !== undefined) {
+      if (workspaceId !== "default") {
+        const workspace = await getWorkspaceMetadata(env.BUCKET, workspaceId);
+        if (!workspace) return Response.json({ error: "Workspace not found" }, { status: 404 });
+        if (!checkMembership(workspace, props.email, env.ADMIN_EMAIL).authorized) {
+          return Response.json({ error: "Not a member of this workspace" }, { status: 403 });
+        }
+      }
+      return serveMcp(request, env, ctx, workspaceId);
+    }
+    if (url.pathname.startsWith("/api/")) {
+      return workspaceRoutes.fetch(request, { ...env, __auth: { email: props.email, name: props.name } }, ctx);
+    }
+    return new Response("Not found", { status: 404 });
+  },
 };
 
-const provider = new OAuthProvider({
-	apiHandler: apiHandler as any,
-	apiRoute: ["/mcp", "/api/"],
-	authorizeEndpoint: "/authorize",
-	clientRegistrationEndpoint: "/register",
-	defaultHandler: GoogleHandler as any,
-	tokenEndpoint: "/token",
-});
-
-const RESERVED_PATHS = new Set([
-	"authorize",
-	"callback",
-	"token",
-	"register",
-	"api",
-	"mcp",
-	".well-known",
-]);
+export function oauthOptions(url: URL): OAuthProviderOptions<Env> {
+  const workspaceId = mcpWorkspace(url.pathname);
+  return {
+    apiRoute: ["/mcp", "/api/", ...(workspaceId && workspaceId !== "default" ? [url.pathname] : [])],
+    apiHandler,
+    authorizeEndpoint: "/authorize",
+    tokenEndpoint: "/token",
+    clientRegistrationEndpoint: "/register",
+    clientIdMetadataDocumentEnabled: true,
+    scopesSupported: ["openid", "email", "profile", "offline_access"],
+    // One protected application; workspace membership is checked on every call.
+    resourceMetadata: { resource: url.origin, resource_name: "Cairn" },
+    defaultHandler: GoogleHandler,
+    onError({ code, status, internal }) {
+      console.warn("oauth_error", { code, status, reason: internal?.reason });
+    },
+  };
+}
 
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-		const url = new URL(request.url);
-
-		// Match /{workspaceId}/mcp paths and rewrite to /mcp + header
-		const mcpMatch = url.pathname.match(/^\/([a-z0-9][a-z0-9_-]*)\/mcp(\/.*)?$/);
-		if (mcpMatch && !RESERVED_PATHS.has(mcpMatch[1])) {
-			const workspaceId = mcpMatch[1];
-			const rest = mcpMatch[2] || "";
-			url.pathname = `/mcp${rest}`;
-
-			const headers = new Headers(request.headers);
-			headers.set("X-Workspace-Id", workspaceId);
-
-			const rewrittenRequest = new Request(url.toString(), {
-				method: request.method,
-				headers,
-				body: request.body,
-			});
-			return provider.fetch(rewrittenRequest, env, ctx);
-		}
-
-		return provider.fetch(request, env, ctx);
-	},
-};
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    if (env.REDIRECT_LEGACY_DOMAIN === "true") {
+      const redirect = legacyRedirect(request.url);
+      if (redirect) return redirect;
+    }
+    const url = new URL(request.url);
+    const bindings: Env & { OAUTH_PROVIDER?: OAuthHelpers } = { ...env };
+    delete bindings.OAUTH_PROVIDER;
+    const provider = new OAuthProvider(oauthOptions(url));
+    const started = performance.now();
+    // Preserve the public URL through authentication and MCP dispatch.
+    const response = await provider.fetch(request, bindings, ctx);
+    if (mcpWorkspace(url.pathname) !== undefined) {
+      console.log("mcp_request", {
+        path: url.pathname,
+        method: request.method,
+        protocol: request.headers.get("MCP-Protocol-Version"),
+        rpcMethod: request.headers.get("Mcp-Method"),
+        status: response.status,
+        durationMs: Math.round(performance.now() - started),
+      });
+    }
+    return response;
+  },
+} satisfies ExportedHandler<Env>;

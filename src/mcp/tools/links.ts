@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { WorkspaceIndex } from "../../storage/workspace-index";
 
 export const linksSchema = {
@@ -12,10 +12,9 @@ export function registerLinksTool(
 	server: McpServer,
 	getIndex: () => DurableObjectStub<WorkspaceIndex>,
 ) {
-	server.tool(
+	server.registerTool(
 		"cairn_links",
-		"Get backlinks and outgoing links for a note. Useful for understanding context and relationships without reading full documents.",
-		linksSchema,
+		{ description: "Get backlinks and outgoing links for a note. Useful for understanding context and relationships without reading full documents.", inputSchema: z.object(linksSchema), annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } },
 		async ({ path, depth, direction }) => {
 			const index = getIndex();
 			const result = await index.getLinks(
